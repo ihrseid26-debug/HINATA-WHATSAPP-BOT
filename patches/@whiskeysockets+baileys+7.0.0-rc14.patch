@@ -1,0 +1,509 @@
+diff --git a/node_modules/@whiskeysockets/baileys/lib/Defaults/index.js b/node_modules/@whiskeysockets/baileys/lib/Defaults/index.js
+index b341e9d..795fd7c 100644
+--- a/node_modules/@whiskeysockets/baileys/lib/Defaults/index.js
++++ b/node_modules/@whiskeysockets/baileys/lib/Defaults/index.js
+@@ -87,6 +87,8 @@ export const MEDIA_PATH_MAP = {
+     document: '/mms/document',
+     audio: '/mms/audio',
+     sticker: '/mms/image',
++    'sticker-pack': '/mms/sticker-pack',
++    'thumbnail-sticker-pack': '/mms/thumbnail-sticker-pack',
+     'thumbnail-link': '/mms/image',
+     'product-catalog-image': '/product/image',
+     'md-app-state': '',
+@@ -102,6 +104,8 @@ export const MEDIA_HKDF_KEY_MAPPING = {
+     product: 'Image',
+     ptt: 'Audio',
+     sticker: 'Image',
++    'sticker-pack': 'Sticker Pack',
++    'thumbnail-sticker-pack': 'Sticker Pack Thumbnail',
+     video: 'Video',
+     'thumbnail-document': 'Document Thumbnail',
+     'thumbnail-image': 'Image Thumbnail',
+diff --git a/node_modules/@whiskeysockets/baileys/lib/Defaults/index.js.hinata-backup b/node_modules/@whiskeysockets/baileys/lib/Defaults/index.js.hinata-backup
+new file mode 100644
+index 0000000..b341e9d
+--- /dev/null
++++ b/node_modules/@whiskeysockets/baileys/lib/Defaults/index.js.hinata-backup
+@@ -0,0 +1,129 @@
++import { proto } from '../../WAProto/index.js';
++import { makeLibSignalRepository } from '../Signal/libsignal.js';
++import { Browsers } from '../Utils/browser-utils.js';
++import logger from '../Utils/logger.js';
++const version = [2, 3000, 1043857760];
++export const UNAUTHORIZED_CODES = [401, 403, 419];
++export const DEFAULT_ORIGIN = 'https://web.whatsapp.com';
++export const CALL_VIDEO_PREFIX = 'https://call.whatsapp.com/video/';
++export const CALL_AUDIO_PREFIX = 'https://call.whatsapp.com/voice/';
++export const DEF_CALLBACK_PREFIX = 'CB:';
++export const DEF_TAG_PREFIX = 'TAG:';
++export const PHONE_CONNECTION_CB = 'CB:Pong';
++export const WA_ADV_ACCOUNT_SIG_PREFIX = Buffer.from([6, 0]);
++export const WA_ADV_DEVICE_SIG_PREFIX = Buffer.from([6, 1]);
++export const WA_ADV_HOSTED_ACCOUNT_SIG_PREFIX = Buffer.from([6, 5]);
++export const WA_ADV_HOSTED_DEVICE_SIG_PREFIX = Buffer.from([6, 6]);
++export const WA_DEFAULT_EPHEMERAL = 7 * 24 * 60 * 60;
++/** Status messages older than 24 hours are considered expired */
++export const STATUS_EXPIRY_SECONDS = 24 * 60 * 60;
++/** WA Web enforces a 14-day maximum age for placeholder resend requests */
++export const PLACEHOLDER_MAX_AGE_SECONDS = 14 * 24 * 60 * 60;
++export const NOISE_MODE = 'Noise_XX_25519_AESGCM_SHA256\0\0\0\0';
++export const DICT_VERSION = 3;
++export const KEY_BUNDLE_TYPE = Buffer.from([5]);
++export const NOISE_WA_HEADER = Buffer.from([87, 65, 6, DICT_VERSION]); // last is "DICT_VERSION"
++/** from: https://stackoverflow.com/questions/3809401/what-is-a-good-regular-expression-to-match-a-url */
++export const URL_REGEX = /https:\/\/(?![^:@\/\s]+:[^:@\/\s]+@)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(:\d+)?(\/[^\s]*)?/g;
++export const WA_CERT_DETAILS = {
++    SERIAL: 0,
++    ISSUER: 'WhatsAppLongTerm1',
++    PUBLIC_KEY: Buffer.from('142375574d0a587166aae71ebe516437c4a28b73e3695c6ce1f7f9545da8ee6b', 'hex')
++};
++export const PROCESSABLE_HISTORY_TYPES = [
++    proto.HistorySync.HistorySyncType.INITIAL_BOOTSTRAP,
++    proto.HistorySync.HistorySyncType.PUSH_NAME,
++    proto.HistorySync.HistorySyncType.RECENT,
++    proto.HistorySync.HistorySyncType.FULL,
++    proto.HistorySync.HistorySyncType.ON_DEMAND,
++    proto.HistorySync.HistorySyncType.NON_BLOCKING_DATA,
++    proto.HistorySync.HistorySyncType.INITIAL_STATUS_V3
++];
++export const DEFAULT_CACHE_TTLS = {
++    SIGNAL_STORE: 5 * 60, // 5 minutes
++    MSG_RETRY: 60 * 60, // 1 hour
++    CALL_OFFER: 5 * 60, // 5 minutes
++    USER_DEVICES: 5 * 60 // 5 minutes
++};
++export const DEFAULT_CONNECTION_CONFIG = {
++    version: version,
++    browser: Browsers.macOS('Chrome'),
++    waWebSocketUrl: 'wss://web.whatsapp.com/ws/chat',
++    connectTimeoutMs: 20000,
++    keepAliveIntervalMs: 30000,
++    logger: logger.child({ class: 'baileys' }),
++    emitOwnEvents: true,
++    defaultQueryTimeoutMs: 60000,
++    customUploadHosts: [],
++    retryRequestDelayMs: 250,
++    maxMsgRetryCount: 5,
++    fireInitQueries: true,
++    auth: undefined,
++    markOnlineOnConnect: true,
++    syncFullHistory: true,
++    patchMessageBeforeSending: msg => msg,
++    shouldSyncHistoryMessage: ({ syncType }) => {
++        return syncType !== proto.HistorySync.HistorySyncType.FULL;
++    },
++    shouldIgnoreJid: () => false,
++    linkPreviewImageThumbnailWidth: 192,
++    transactionOpts: { maxCommitRetries: 10, delayBetweenTriesMs: 3000 },
++    generateHighQualityLinkPreview: false,
++    enableAutoSessionRecreation: true,
++    enableRecentMessageCache: true,
++    options: {},
++    appStateMacVerification: {
++        patch: false,
++        snapshot: false
++    },
++    countryCode: 'US',
++    getMessage: async () => undefined,
++    cachedGroupMetadata: async () => undefined,
++    makeSignalRepository: makeLibSignalRepository
++};
++export const MEDIA_PATH_MAP = {
++    image: '/mms/image',
++    video: '/mms/video',
++    document: '/mms/document',
++    audio: '/mms/audio',
++    sticker: '/mms/image',
++    'thumbnail-link': '/mms/image',
++    'product-catalog-image': '/product/image',
++    'md-app-state': '',
++    'md-msg-hist': '/mms/md-app-state',
++    'biz-cover-photo': '/pps/biz-cover-photo'
++};
++export const MEDIA_HKDF_KEY_MAPPING = {
++    audio: 'Audio',
++    document: 'Document',
++    gif: 'Video',
++    image: 'Image',
++    ppic: '',
++    product: 'Image',
++    ptt: 'Audio',
++    sticker: 'Image',
++    video: 'Video',
++    'thumbnail-document': 'Document Thumbnail',
++    'thumbnail-image': 'Image Thumbnail',
++    'thumbnail-video': 'Video Thumbnail',
++    'thumbnail-link': 'Link Thumbnail',
++    'md-msg-hist': 'History',
++    'md-app-state': 'App State',
++    'product-catalog-image': '',
++    'payment-bg-image': 'Payment Background',
++    ptv: 'Video',
++    'biz-cover-photo': 'Image'
++};
++export const MEDIA_KEYS = Object.keys(MEDIA_PATH_MAP);
++/** 120s timeout for history sync stall detection, same as WA Web's handleChunkProgress / restartPausedTimer (g = 120) */
++export const HISTORY_SYNC_PAUSED_TIMEOUT_MS = 120000;
++export const MIN_PREKEY_COUNT = 5;
++export const INITIAL_PREKEY_COUNT = 812;
++export const UPLOAD_TIMEOUT = 30000; // 30 seconds
++export const TimeMs = {
++    Minute: 60 * 1000,
++    Hour: 60 * 60 * 1000,
++    Day: 24 * 60 * 60 * 1000,
++    Week: 7 * 24 * 60 * 60 * 1000
++};
++//# sourceMappingURL=index.js.map
+\ No newline at end of file
+diff --git a/node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js b/node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js
+index f2003ac..53a454e 100644
+--- a/node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js
++++ b/node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js
+@@ -880,6 +880,7 @@ export const makeMessagesRecvSocket = (config) => {
+                 break;
+             case 'link_code_companion_reg':
+                 const linkCodeCompanionReg = getBinaryNodeChild(node, 'link_code_companion_reg');
++                if (linkCodeCompanionReg?.attrs?.stage !== 'primary_hello') break;
+                 const ref = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'link_code_pairing_ref'));
+                 const primaryIdentityPublicKey = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'primary_identity_pub'));
+                 const primaryEphemeralPublicKeyWrapped = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'link_code_pairing_wrapped_primary_ephemeral_pub'));
+diff --git a/node_modules/@whiskeysockets/baileys/lib/Socket/mex.js b/node_modules/@whiskeysockets/baileys/lib/Socket/mex.js
+index 8fe1b99..5372ec0 100644
+--- a/node_modules/@whiskeysockets/baileys/lib/Socket/mex.js
++++ b/node_modules/@whiskeysockets/baileys/lib/Socket/mex.js
+@@ -22,7 +22,22 @@ export const executeWMexQuery = async (variables, queryId, dataPath, query, gene
+     const result = await wMexQuery(variables, queryId, query, generateMessageTag);
+     const child = getBinaryNodeChild(result, 'result');
+     if (child?.content) {
+-        const data = JSON.parse(child.content.toString());
++        let data;
++        try {
++            data = JSON.parse(child.content.toString());
++        } catch (error) {
++            console.error('[HINATA MEX RAW DIAGNOSTIC]', {
++                childTag: child.tag,
++                childAttrs: child.attrs,
++                contentType: typeof child.content,
++                contentLength: Buffer.isBuffer(child.content) ? child.content.length : null,
++                firstBytesHex: Buffer.isBuffer(child.content)
++                    ? child.content.subarray(0, 48).toString('hex')
++                    : null,
++                parseError: error.message
++            });
++            throw error;
++        }
+         if (data.errors && data.errors.length > 0) {
+             const errorMessages = data.errors.map((err) => err.message || 'Unknown error').join(', ');
+             const firstError = data.errors[0];
+diff --git a/node_modules/@whiskeysockets/baileys/lib/Socket/mex.js.hinata-backup b/node_modules/@whiskeysockets/baileys/lib/Socket/mex.js.hinata-backup
+new file mode 100644
+index 0000000..8fe1b99
+--- /dev/null
++++ b/node_modules/@whiskeysockets/baileys/lib/Socket/mex.js.hinata-backup
+@@ -0,0 +1,42 @@
++import { Boom } from '@hapi/boom';
++import { getBinaryNodeChild, S_WHATSAPP_NET } from '../WABinary/index.js';
++const wMexQuery = (variables, queryId, query, generateMessageTag) => {
++    return query({
++        tag: 'iq',
++        attrs: {
++            id: generateMessageTag(),
++            type: 'get',
++            to: S_WHATSAPP_NET,
++            xmlns: 'w:mex'
++        },
++        content: [
++            {
++                tag: 'query',
++                attrs: { query_id: queryId },
++                content: Buffer.from(JSON.stringify({ variables }), 'utf-8')
++            }
++        ]
++    });
++};
++export const executeWMexQuery = async (variables, queryId, dataPath, query, generateMessageTag) => {
++    const result = await wMexQuery(variables, queryId, query, generateMessageTag);
++    const child = getBinaryNodeChild(result, 'result');
++    if (child?.content) {
++        const data = JSON.parse(child.content.toString());
++        if (data.errors && data.errors.length > 0) {
++            const errorMessages = data.errors.map((err) => err.message || 'Unknown error').join(', ');
++            const firstError = data.errors[0];
++            const errorCode = firstError.extensions?.error_code || 400;
++            throw new Boom(`GraphQL server error: ${errorMessages}`, { statusCode: errorCode, data: firstError });
++        }
++        const response = dataPath ? data?.data?.[dataPath] : data?.data;
++        if (typeof response !== 'undefined') {
++            return response;
++        }
++    }
++    const action = (dataPath || '').startsWith('xwa2_')
++        ? dataPath.substring(5).replace(/_/g, ' ')
++        : dataPath?.replace(/_/g, ' ');
++    throw new Boom(`Failed to ${action}, unexpected response structure.`, { statusCode: 400, data: result });
++};
++//# sourceMappingURL=mex.js.map
+\ No newline at end of file
+diff --git a/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js b/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js
+index ae34a8f..450c328 100644
+--- a/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js
++++ b/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js
+@@ -317,7 +317,7 @@ export const makeSocket = (config) => {
+         logger.trace({ handshake }, 'handshake recv from WA');
+         const keyEnc = noise.processHandshake(handshake, creds.noiseKey);
+         let node;
+-        if (!creds.me) {
++        if (!creds.me || (!!creds.pairingCode && !creds.registered)) {
+             node = generateRegistrationNode(creds, config);
+             logger.info({ node }, 'not logged in, attempting registration...');
+         }
+@@ -644,7 +644,7 @@ export const makeSocket = (config) => {
+                         {
+                             tag: 'link_code_pairing_nonce',
+                             attrs: {},
+-                            content: '0'
++                            content: Buffer.alloc(1)
+                         }
+                     ]
+                 }
+diff --git a/node_modules/@whiskeysockets/baileys/lib/Utils/validate-connection.js b/node_modules/@whiskeysockets/baileys/lib/Utils/validate-connection.js
+index 6a65a73..3e91bfd 100644
+--- a/node_modules/@whiskeysockets/baileys/lib/Utils/validate-connection.js
++++ b/node_modules/@whiskeysockets/baileys/lib/Utils/validate-connection.js
+@@ -15,7 +15,7 @@ const getUserAgent = (config) => {
+         },
+         platform: config.browser[1].toLocaleLowerCase().includes('android')
+             ? proto.ClientPayload.UserAgent.Platform.ANDROID
+-            : proto.ClientPayload.UserAgent.Platform.WEB,
++            : proto.ClientPayload.UserAgent.Platform.MACOS,
+         releaseChannel: proto.ClientPayload.UserAgent.ReleaseChannel.RELEASE,
+         osVersion: '0.1',
+         device: 'Desktop',
+@@ -191,7 +191,8 @@ export const configureSuccessfulPairing = (stanza, { advSecretKey, signedIdentit
+         account,
+         me: { id: jid, name: bizName, lid },
+         signalIdentities: [...(signalIdentities || []), identity],
+-        platform: platformNode?.attrs.name
++        platform: platformNode?.attrs.name,
++        registered: true
+     };
+     return {
+         creds: authUpdate,
+diff --git a/node_modules/@whiskeysockets/baileys/lib/Utils/validate-connection.js.before-macos-fix b/node_modules/@whiskeysockets/baileys/lib/Utils/validate-connection.js.before-macos-fix
+new file mode 100644
+index 0000000..6a65a73
+--- /dev/null
++++ b/node_modules/@whiskeysockets/baileys/lib/Utils/validate-connection.js.before-macos-fix
+@@ -0,0 +1,210 @@
++import { Boom } from '@hapi/boom';
++import { createHash } from 'crypto';
++import { proto } from '../../WAProto/index.js';
++import { KEY_BUNDLE_TYPE, WA_ADV_ACCOUNT_SIG_PREFIX, WA_ADV_DEVICE_SIG_PREFIX, WA_ADV_HOSTED_ACCOUNT_SIG_PREFIX } from '../Defaults/index.js';
++import { getBinaryNodeChild, jidDecode, S_WHATSAPP_NET } from '../WABinary/index.js';
++import { Curve, hmacSign } from './crypto.js';
++import { encodeBigEndian } from './generics.js';
++import { createSignalIdentity } from './signal.js';
++const getUserAgent = (config) => {
++    return {
++        appVersion: {
++            primary: config.version[0],
++            secondary: config.version[1],
++            tertiary: config.version[2]
++        },
++        platform: config.browser[1].toLocaleLowerCase().includes('android')
++            ? proto.ClientPayload.UserAgent.Platform.ANDROID
++            : proto.ClientPayload.UserAgent.Platform.WEB,
++        releaseChannel: proto.ClientPayload.UserAgent.ReleaseChannel.RELEASE,
++        osVersion: '0.1',
++        device: 'Desktop',
++        osBuildNumber: '0.1',
++        localeLanguageIso6391: 'en',
++        mnc: '000',
++        mcc: '000',
++        localeCountryIso31661Alpha2: config.countryCode
++    };
++};
++const PLATFORM_MAP = {
++    'Mac OS': proto.ClientPayload.WebInfo.WebSubPlatform.DARWIN,
++    Windows: proto.ClientPayload.WebInfo.WebSubPlatform.WIN32
++};
++const getWebInfo = (config) => {
++    let webSubPlatform = proto.ClientPayload.WebInfo.WebSubPlatform.WEB_BROWSER;
++    if (config.syncFullHistory &&
++        PLATFORM_MAP[config.browser[0]] &&
++        config.browser[1] === 'Desktop') {
++        webSubPlatform = PLATFORM_MAP[config.browser[0]];
++    }
++    return { webSubPlatform };
++};
++const getClientPayload = (config) => {
++    const payload = {
++        connectType: proto.ClientPayload.ConnectType.WIFI_UNKNOWN,
++        connectReason: proto.ClientPayload.ConnectReason.USER_ACTIVATED,
++        userAgent: getUserAgent(config)
++    };
++    if (!config.browser[1].toLocaleLowerCase().includes('android')) {
++        payload.webInfo = getWebInfo(config);
++    }
++    if (config.pushName) {
++        payload.pushName = config.pushName;
++    }
++    return payload;
++};
++export const generateLoginNode = (userJid, config) => {
++    const { user, device } = jidDecode(userJid);
++    const payload = {
++        ...getClientPayload(config),
++        passive: true,
++        pull: true,
++        username: +user,
++        device: device,
++        // TODO: investigate (hard set as false atm)
++        lidDbMigrated: false
++    };
++    return proto.ClientPayload.fromObject(payload);
++};
++const getPlatformType = (platform) => {
++    const platformType = platform.toUpperCase();
++    if (platformType === 'ANDROID') {
++        return proto.DeviceProps.PlatformType.ANDROID_PHONE;
++    }
++    return (proto.DeviceProps.PlatformType[platformType] ||
++        proto.DeviceProps.PlatformType.CHROME);
++};
++export const generateRegistrationNode = ({ registrationId, signedPreKey, signedIdentityKey }, config) => {
++    // the app version needs to be md5 hashed
++    // and passed in
++    const appVersionBuf = createHash('md5')
++        .update(config.version.join('.')) // join as string
++        .digest();
++    const companion = {
++        os: config.browser[0],
++        platformType: getPlatformType(config.browser[1]),
++        requireFullSync: config.syncFullHistory,
++        historySyncConfig: {
++            storageQuotaMb: 10240,
++            inlineInitialPayloadInE2EeMsg: true,
++            recentSyncDaysLimit: undefined,
++            supportCallLogHistory: false,
++            supportBotUserAgentChatHistory: true,
++            supportCagReactionsAndPolls: true,
++            supportBizHostedMsg: true,
++            supportRecentSyncChunkMessageCountTuning: true,
++            supportHostedGroupMsg: true,
++            supportFbidBotChatHistory: true,
++            supportAddOnHistorySyncMigration: undefined,
++            supportMessageAssociation: true,
++            supportGroupHistory: false,
++            onDemandReady: undefined,
++            supportGuestChat: undefined
++        },
++        version: {
++            primary: 10,
++            secondary: 15,
++            tertiary: 7
++        }
++    };
++    const companionProto = proto.DeviceProps.encode(companion).finish();
++    const registerPayload = {
++        ...getClientPayload(config),
++        passive: false,
++        pull: false,
++        devicePairingData: {
++            buildHash: appVersionBuf,
++            deviceProps: companionProto,
++            eRegid: encodeBigEndian(registrationId),
++            eKeytype: KEY_BUNDLE_TYPE,
++            eIdent: signedIdentityKey.public,
++            eSkeyId: encodeBigEndian(signedPreKey.keyId, 3),
++            eSkeyVal: signedPreKey.keyPair.public,
++            eSkeySig: signedPreKey.signature
++        }
++    };
++    return proto.ClientPayload.fromObject(registerPayload);
++};
++export const configureSuccessfulPairing = (stanza, { advSecretKey, signedIdentityKey, signalIdentities }) => {
++    const msgId = stanza.attrs.id;
++    const pairSuccessNode = getBinaryNodeChild(stanza, 'pair-success');
++    const deviceIdentityNode = getBinaryNodeChild(pairSuccessNode, 'device-identity');
++    const platformNode = getBinaryNodeChild(pairSuccessNode, 'platform');
++    const deviceNode = getBinaryNodeChild(pairSuccessNode, 'device');
++    const businessNode = getBinaryNodeChild(pairSuccessNode, 'biz');
++    if (!deviceIdentityNode || !deviceNode) {
++        throw new Boom('Missing device-identity or device in pair success node', { data: stanza });
++    }
++    const bizName = businessNode?.attrs.name;
++    const jid = deviceNode.attrs.jid;
++    const lid = deviceNode.attrs.lid;
++    const { details, hmac, accountType } = proto.ADVSignedDeviceIdentityHMAC.decode(deviceIdentityNode.content);
++    let hmacPrefix = Buffer.from([]);
++    if (accountType !== undefined && accountType === proto.ADVEncryptionType.HOSTED) {
++        hmacPrefix = WA_ADV_HOSTED_ACCOUNT_SIG_PREFIX;
++    }
++    const advSign = hmacSign(Buffer.concat([hmacPrefix, details]), Buffer.from(advSecretKey, 'base64'));
++    if (Buffer.compare(hmac, advSign) !== 0) {
++        throw new Boom('Invalid account signature');
++    }
++    const account = proto.ADVSignedDeviceIdentity.decode(details);
++    const { accountSignatureKey, accountSignature, details: deviceDetails } = account;
++    const deviceIdentity = proto.ADVDeviceIdentity.decode(deviceDetails);
++    const accountSignaturePrefix = deviceIdentity.deviceType === proto.ADVEncryptionType.HOSTED
++        ? WA_ADV_HOSTED_ACCOUNT_SIG_PREFIX
++        : WA_ADV_ACCOUNT_SIG_PREFIX;
++    const accountMsg = Buffer.concat([accountSignaturePrefix, deviceDetails, signedIdentityKey.public]);
++    if (!Curve.verify(accountSignatureKey, accountMsg, accountSignature)) {
++        throw new Boom('Failed to verify account signature');
++    }
++    const deviceMsg = Buffer.concat([
++        WA_ADV_DEVICE_SIG_PREFIX,
++        deviceDetails,
++        signedIdentityKey.public,
++        accountSignatureKey
++    ]);
++    account.deviceSignature = Curve.sign(signedIdentityKey.private, deviceMsg);
++    const identity = createSignalIdentity(lid, accountSignatureKey);
++    const accountEnc = encodeSignedDeviceIdentity(account, false);
++    const reply = {
++        tag: 'iq',
++        attrs: {
++            to: S_WHATSAPP_NET,
++            type: 'result',
++            id: msgId
++        },
++        content: [
++            {
++                tag: 'pair-device-sign',
++                attrs: {},
++                content: [
++                    {
++                        tag: 'device-identity',
++                        attrs: { 'key-index': deviceIdentity.keyIndex.toString() },
++                        content: accountEnc
++                    }
++                ]
++            }
++        ]
++    };
++    const authUpdate = {
++        account,
++        me: { id: jid, name: bizName, lid },
++        signalIdentities: [...(signalIdentities || []), identity],
++        platform: platformNode?.attrs.name
++    };
++    return {
++        creds: authUpdate,
++        reply
++    };
++};
++export const encodeSignedDeviceIdentity = (account, includeSignatureKey) => {
++    account = { ...account };
++    // set to null if we are not to include the signature key
++    // or if we are including the signature key but it is empty
++    if (!includeSignatureKey || !account.accountSignatureKey?.length) {
++        account.accountSignatureKey = null;
++    }
++    return proto.ADVSignedDeviceIdentity.encode(account).finish();
++};
++//# sourceMappingURL=validate-connection.js.map
+\ No newline at end of file

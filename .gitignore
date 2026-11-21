@@ -1,0 +1,41 @@
+node_modules/
+.env
+sessions/**
+!sessions/.gitkeep
+database/*.tmp
+*.log
+
+# HINATA private data
+.env
+.env.*
+!.env.example
+node_modules/
+sessions/**
+!sessions/.gitkeep
+database/**
+!database/.gitkeep
+*.log
+
+# Local backups and temporary work
+.alvaria-backups/
+.hinata-meta-backup-*/
+.work/
+backup-hinata-*/
+backup-protection-*/
+backups/
+tmp/
+data/
+storage/
+*.bak
+*.backup*
+*.before-*
+HINATA-GLOBAL-EXECUTOR-REPORT.txt
+
+# Never deploy standalone games with WhatsApp bot
+/games/
+
+# Private runtime data
+/database/
+/sessions/
+/data/
+/storage/
