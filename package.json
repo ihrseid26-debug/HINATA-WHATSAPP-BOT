@@ -21,7 +21,7 @@
     "dotenv": "^16.4.7",
     "jimp": "^1.6.1",
     "pino": "^9.6.0",
-    "pinterest-unofficial": "github:ReverserID/Pinterest-Unofficial-API",
+    "pinterest-unofficial": "file:vendor/pinterest-unofficial",
     "yt-search": "^2.13.1",
     "zaileys": "4.18.0",
     "zqbaileys_helper": "github:zqdevelopers/zq_baileys_helper#main"
