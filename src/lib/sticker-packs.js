@@ -285,7 +285,8 @@ async function createStickerPack(ctx, query) {
         description: '🌸 𝑯𝑼𝑵𝑰𝑽 • 𝑴𝑨𝑫𝑬 𝑩𝒀 𝑨𝒍𝒗𝒂𝒓𝒊𝒂'
       },
       {
-        upload: ctx.sock.waUploadToServer.bind(ctx.sock)
+        upload: ctx.sock.waUploadToServer.bind(ctx.sock),
+        mediaUploadTimeoutMs: 120000
       }
     );
 
