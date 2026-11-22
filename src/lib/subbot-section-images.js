@@ -3,10 +3,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import { getMessageContextInfo } from './text.js';
+import { config } from '../config.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
-const DB = path.join(ROOT, 'database', 'subbots', 'section-images.json');
+const DB = path.join(config.databaseDir, 'subbots', 'section-images.json');
 const MAX_SIZE = 8 * 1024 * 1024;
 
 const sections = [
