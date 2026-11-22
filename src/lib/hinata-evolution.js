@@ -1,20 +1,15 @@
 // HINATA_EVOLUTION_BRIDGE_V2
-import os from 'node:os';
 import path from 'node:path';
-import { loadConfig } from '../../../HINATA-EVOLUTION/src/core/config.js';
-import { HinataBrain } from '../../../HINATA-EVOLUTION/src/core/brain.js';
+import { config } from '../config.js';
+import { loadConfig } from '../evolution/core/config.js';
+import { HinataBrain } from '../evolution/core/brain.js';
 import { generateLocalReply } from './local-ai/llama-client.js';
 import {
   observeLearningTurn,
   getLearningStatus
 } from './local-ai/learning-engine.js';
 
-const evolutionStorage = path.join(
-  os.homedir(),
-  'HINATA-SUBBOTS',
-  'HINATA-EVOLUTION',
-  'storage'
-);
+const evolutionStorage = path.join(config.databaseDir, 'evolution');
 
 const evolutionConfig = loadConfig({
   HINATA_NAME: 'HINATA',
