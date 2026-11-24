@@ -34,6 +34,8 @@ import { registerMetaAICommands } from '../lib/meta-ai-group.js';
 
 
 import { registerManhwaCommands } from '../lib/manhwa.js';
+import { registerAnimeSuggestionCommands } from '../lib/anime-suggestions.js';
+import { registerMovieSuggestionCommands } from '../lib/movie-suggestions.js';
 
 export const coreCommands = new Map()
 
@@ -75,6 +77,8 @@ registerStickerPackCommands(coreCommands);
 registerAnimatedStickerPackCommands(coreCommands);
 registerContactViewerCommands(coreCommands);
 registerManhwaCommands(coreCommands);
+registerAnimeSuggestionCommands(coreCommands);
+registerMovieSuggestionCommands(coreCommands);
 registerRandomEventsCommands(coreCommands); // HINATA_RANDOM_EVENTS_REGISTERED_V1
 registerSubbotSectionImageCommands(coreCommands);
 registerSubbotCommandVideoCommands(coreCommands);
@@ -994,56 +998,100 @@ const HINATA_UNIVERSE_ITEMS = [
 
 
 // ======================================================
-// 🔎 ALVARIA MEDIA REVEAL — كشف الصور والفيديوهات المقتبسة
+// ======================================================
+// 🔎 HINATA MEDIA REVEAL — كشف الوسائط المقتبسة العادية
 // ======================================================
 register(
   ['كشف'],
-  'إعادة إرسال الصورة أو الفيديو الذي ترد عليه',
+  'إعادة إرسال الصورة أو الفيديو المقتبس',
   async ctx => {
-    const contextInfo = getMessageContextInfo(ctx.message?.message || {});
-    let quotedMessage = contextInfo?.quotedMessage;
-
-    if (!quotedMessage) {
-      return ctx.reply('⚠️ رد على صورة أو فيديو أولاً، ثم اكتب .كشف');
-    }
+    const raw = ctx.message?.message || {};
 
     const wrappers = [
       'ephemeralMessage',
-      'viewOnceMessage',
-      'viewOnceMessageV2',
-      'viewOnceMessageV2Extension',
-      'documentWithCaptionMessage'
+      'documentWithCaptionMessage',
+      'deviceSentMessage',
+      'editedMessage'
     ];
 
-    for (let i = 0; i < 6; i += 1) {
-      let unwrapped = false;
+    function unwrapNormal(message) {
+      let current = message || {};
 
-      for (const wrapper of wrappers) {
-        if (quotedMessage?.[wrapper]?.message) {
-          quotedMessage = quotedMessage[wrapper].message;
-          unwrapped = true;
-          break;
+      for (let i = 0; i < 8; i += 1) {
+        if (
+          current.viewOnceMessage ||
+          current.viewOnceMessageV2 ||
+          current.viewOnceMessageV2Extension
+        ) {
+          return { viewOnce: true, message: current };
         }
+
+        let next = null;
+
+        for (const key of wrappers) {
+          if (current?.[key]?.message) {
+            next = current[key].message;
+            break;
+          }
+        }
+
+        if (!next) break;
+        current = next;
       }
 
-      if (!unwrapped) break;
+      return { viewOnce: false, message: current };
     }
 
-    const mediaType = quotedMessage?.imageMessage
+    const incoming = unwrapNormal(raw);
+
+    const contextInfo =
+      incoming.message?.extendedTextMessage?.contextInfo ||
+      incoming.message?.imageMessage?.contextInfo ||
+      incoming.message?.videoMessage?.contextInfo ||
+      incoming.message?.documentMessage?.contextInfo ||
+      getMessageContextInfo(raw);
+
+    const quoted = contextInfo?.quotedMessage;
+
+    if (!quoted) {
+      return ctx.reply(
+        '⚠️ ردّ على صورة أو فيديو عادي أولاً، ثم اكتب .كشف'
+      );
+    }
+
+    const unwrapped = unwrapNormal(quoted);
+
+    if (unwrapped.viewOnce) {
+      return ctx.reply(
+        '🔒 لا يمكن إعادة إرسال وسائط العرض لمرة واحدة.'
+      );
+    }
+
+    const quotedContent = unwrapped.message;
+
+    const mediaType = quotedContent?.imageMessage
       ? 'image'
-      : quotedMessage?.videoMessage
+      : quotedContent?.videoMessage
         ? 'video'
         : null;
 
     if (!mediaType) {
-      return ctx.reply('⚠️ الرسالة التي رددت عليها ليست صورة أو فيديو.');
+      return ctx.reply(
+        '⚠️ الرسالة المقتبسة ليست صورة أو فيديو مدعوماً.'
+      );
     }
 
-    const mediaNode = quotedMessage[`${mediaType}Message`];
-    const maxBytes = mediaType === 'video' ? 64 * 1024 * 1024 : 20 * 1024 * 1024;
+    const mediaNode = quotedContent[`${mediaType}Message`];
+    const maxBytes = mediaType === 'video'
+      ? 64 * 1024 * 1024
+      : 20 * 1024 * 1024;
 
     try {
-      const stream = await downloadContentFromMessage(mediaNode, mediaType);
+      const stream = await downloadContentFromMessage(
+        mediaNode,
+        mediaType
+      );
+
       const chunks = [];
       let totalBytes = 0;
 
@@ -1063,20 +1111,21 @@ register(
       }
 
       const buffer = Buffer.concat(chunks);
-      const caption = mediaType === 'image'
-        ? 'تم كشف هذه الصورة'
-        : 'تم كشف هذا الفيديو';
 
       const payload = mediaType === 'image'
         ? {
             image: buffer,
-            caption,
-            ...(mediaNode.mimetype ? { mimetype: mediaNode.mimetype } : {})
+            caption: '🖼️ تم استلام الصورة',
+            ...(mediaNode.mimetype
+              ? { mimetype: mediaNode.mimetype }
+              : {})
           }
         : {
             video: buffer,
-            caption,
-            ...(mediaNode.mimetype ? { mimetype: mediaNode.mimetype } : {})
+            caption: '🎬 تم استلام الفيديو',
+            ...(mediaNode.mimetype
+              ? { mimetype: mediaNode.mimetype }
+              : {})
           };
 
       await ctx.sock.sendMessage(
@@ -1084,16 +1133,21 @@ register(
         payload,
         { quoted: ctx.message }
       );
+
     } catch (error) {
+      console.error('[HINATA:كشف] Media error:', error);
+
       if (error?.message === 'MEDIA_TOO_LARGE') {
-        return ctx.reply('⚠️ حجم الوسيط أكبر من الحد المسموح به لهذا الأمر.');
+        return ctx.reply('⚠️ حجم الوسيط يتجاوز الحد المسموح.');
       }
 
       if (error?.message === 'EMPTY_MEDIA') {
-        return ctx.reply('⚠️ لم أتمكن من قراءة محتوى الوسيط.');
+        return ctx.reply('⚠️ لم يتم العثور على محتوى الوسيط.');
       }
 
-      throw error;
+      return ctx.reply(
+        '❌ تعذر تحميل الوسيط. تحقق من صلاحية الرسالة واتصال البوت.'
+      );
     }
   },
   '🔎'
@@ -1696,70 +1750,40 @@ register(
 
 // ❅ قسم الميديا — ALVARIA MEDIA STUDIO.
 
-  // ALVARIA_MEDIA_STUDIO_V3
+  // HINATA_MEDIA_STUDIO_BUTTON_SELECT_V1
 register(
   ['قسم_الميديا'],
-  'دليل ALVARIA MEDIA STUDIO',
+  'مركز الميديا التفاعلي',
   async ctx => {
-    const guide = [
+    const menuText = [
       '*╭━━〔 ❄️ 𝑨𝑳𝑽𝑨𝑹𝑰𝑨 〕━━╮*',
       '',
-      '*🎧 دَلِـيـلُ مَـرْكَـزِ الـمِـيـديـا*',
-      '*『 𝑴𝑬𝑫𝑰𝑨 • 𝑴𝑼𝑺𝑰𝑪 • 𝑰𝑴𝑨𝑮𝑬𝑺 』*',
+      '*🎵 مَـرْكَـزُ الـمِـيـديـا*',
+      '*『 MEDIA • MUSIC • IMAGES 』*',
       '',
-      '*╭━━〔 🎵 بَـحْـثُ الأَغَـانِـي 〕━━╮*',
+      '❅ اختر الرجوع للعودة إلى القائمة الرئيسية.',
       '',
-      '*•┆🎵〖 .اغنيه 〗*',
-      '*⟞ البحث عن أغنية باسمها أو باسم الفنان.*',
-      '*⟞ يعرض البوت نتائج البحث لتختار الأغنية المطلوبة.*',
-      '*⟞ يرسل التسجيل الصوتي بصيغة OGG/Opus.*',
-      '',
-      '*مثال:*',
-      '`.اغنيه Naruto Blue Bird`',
-      '',
-      '*╭━━〔 🖼️ بَـحْـثُ الـصُّـوَر 〕━━╮*',
-      '',
-      '*•┆🖼️〖 .صورة 〗*',
-      '*⟞ البحث عن صور الشخصيات أو المواضيع التي تريدها.*',
-      '*⟞ يجلب البوت الصور من Pinterest عند توفر النتائج.*',
-      '',
-      '*مثال:*',
-      '`.صورة Hinata Hyuga`',
-      '',
-      '*╭━━〔 🎬 اسْـتُـوديـو الإيـديـت 〕━━╮*',
-      '',
-      '*•┆🎬〖 .ايديت 〗*',
-      '*⟞ البحث عن مقاطع إيديت قصيرة حسب اسم الشخصية أو الموضوع.*',
-      '*⟞ تظهر النتائج في بطاقات فيديو أفقية عند توفرها.*',
-      '',
-      '*أمثلة:*',
-      '`.ايديت Naruto`',
-      '`.ايديت Gojo`',
-      '`.ايديت Hinata Hyuga`',
-      '',
-      '*╭━━〔 📥 تَـحْـمِـيـل الـمَـقَـاطِـع 〕━━╮*',
-      '',
-      '*•┆📥〖 .تحميل 〗*',
-      '*⟞ أرسل رابط الوسائط بعد الأمر للحصول على معاينة.*',
-      '*⟞ بعد المعاينة يمكنك اختيار تحميل الفيديو أو الصوت.*',
-      '*⟞ الصوت يُرسل كتسجيل صوتي.*',
-      '',
-      '*مثال:*',
-      '`.تحميل https://example.com/media`',
-      '',
-      '*╭━━〔 ❄️ مَـعْـلُـومَـات 〕━━╮*',
-      '',
-      '*❅ اكتب الأمر متبوعًا باسم الأغنية أو الشخصية أو الرابط.*',
-      '*❅ النتائج تعتمد على توفر المحتوى لدى المصدر.*',
-      '*❅ التحميل متاح للروابط المدعومة فقط.*',
-      '',
-      '*╰━━〔 ❄️ ALVARIA MEDIA STUDIO 〕━━╯*'
-    ].join('\n');
+      '*╰━━〔 ❄️ MEDIA STUDIO 〕━━╯*'
+    ].join('\\n');
 
-    await ctx.reply(guide);
+    await sendHinataSelect(
+      ctx,
+      menuText,
+      [
+        {
+          title: '⬅️ رجوع إلى القائمة الرئيسية',
+          description: 'العودة إلى قائمة أقسام البوت',
+          id: '.اوامر'
+        }
+      ],
+      '🎵 MEDIA STUDIO',
+      '📋 اختيار'
+    );
   },
   '🎵'
 );
+
+// ❅ قسم الملصقات — ALVARIA Sticker Studio.
 
 // ❅ قسم الملصقات — ALVARIA Sticker Studio.
 // ❅ قسم الملصقات — ALVARIA Sticker Studio.

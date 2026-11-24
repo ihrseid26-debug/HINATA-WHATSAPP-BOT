@@ -9,6 +9,22 @@ import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 
 const run = promisify(execFile);
+const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
+
+async function ensureFfmpeg() {
+  try {
+    await run(FFMPEG_PATH, ['-version'], {
+      timeout: 10000,
+      maxBuffer: 1024 * 1024
+    });
+  } catch (error) {
+    const reason = error?.code === 'ENOENT'
+      ? 'FFmpeg غير مثبت أو غير متاح في PATH داخل السيرفر.'
+      : `تعذر تشغيل FFmpeg: ${error?.message || error}`;
+
+    throw new Error(reason);
+  }
+}
 
 const PACK_NAME = '❄️ 𝑨𝒍𝒗𝒂𝒓𝒊𝒂 𝑺𝑻𝑰𝑪𝑲𝑬𝑹𝑺';
 const PACK_PUBLISHER = '🍁 𝑨𝒍𝒗𝒂𝒓𝒊𝒂 𝑩𝑶𝑻 🍁';
@@ -110,7 +126,7 @@ async function convertToWebP(inputBuffer, tempDir, index) {
 
   await fs.writeFile(input, inputBuffer);
 
-  await run('ffmpeg', [
+  await run(FFMPEG_PATH, [
     '-hide_banner',
     '-loglevel', 'error',
     '-y',
@@ -204,6 +220,8 @@ function getSearchQuery(ctx) {
 }
 
 async function createStickerPack(ctx, query) {
+  await ensureFfmpeg();
+
   const client = await getPinterest();
 
   const result = await client.search.searchPins({
