@@ -26,7 +26,7 @@ import yts from 'yt-search';
 import { downloadContentFromMessage } from '@whiskeysockets/baileys';
 import { registerRandomEventsCommands } from '../lib/random-events.js';
 import { registerSubbotSectionImageCommands } from '../lib/subbot-section-images.js';
-import { registerSubbotCommandVideoCommands, getSubbotCommandVideo, getSubbotCommandVideoFile } from '../lib/subbot-command-videos.js';
+import { registerSubbotCommandVideoCommands, getSubbotCommandVideo } from '../lib/subbot-command-videos.js';
 import { registerAccountBlockingCommands } from '../lib/account-blocking.js';
 import { auditGroupDevices, temporarilyLockGroup } from '../lib/group-device-audit.js';
 import { registerChatCommand } from '../lib/chat-command.js';
@@ -1381,13 +1381,13 @@ async function showMainSectionsMenu(ctx) {
   // فيديو دائري اختياري: البوتات الفرعية فقط، قبل القائمة.
   if (ctx.subbotSessionId) {
     try {
-      const menuVideoPath = await getSubbotCommandVideoFile(ctx, 'menu');
+      const menuVideoBuffer = await getSubbotCommandVideo(ctx, 'menu');
 
-      if (menuVideoPath) {
+      if (menuVideoBuffer) {
         await ctx.sock.sendMessage(
           ctx.jid,
           {
-            video: { url: menuVideoPath },
+            video: menuVideoBuffer,
             mimetype: 'video/mp4',
             ptv: true
           },

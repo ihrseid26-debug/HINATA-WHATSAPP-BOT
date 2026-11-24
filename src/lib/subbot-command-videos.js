@@ -1,13 +1,10 @@
 import fs from 'node:fs/promises';
-import { createHash } from 'node:crypto';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
+import path from 'node:path';
 import { getMessageContextInfo } from './text.js';
+import { config } from '../config.js';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(HERE, '../..');
-const DB = path.join(ROOT, 'database', 'subbots', 'command-videos.json');
+const DB = path.join(config.databaseDir, 'subbots', 'command-videos.json');
 
 const MAX_VIDEO_SIZE = 16 * 1024 * 1024;
 
@@ -254,72 +251,6 @@ export function registerSubbotCommandVideoCommands(commands) {
   });
 }
 
-
-/**
- * إرجاع مسار ملف MP4 ثابت للفيديو الدائري.
- * يعتمد اسم الملف على بصمة المحتوى حتى لا يعاد استخدام فيديو قديم.
- */
-export async function getSubbotCommandVideoFile(ctx, type) {
-  if (!ctx?.subbotSessionId || type !== 'menu') return null;
-
-  const key = VIDEO_KEYS[type];
-  if (!key) return null;
-
-  const data = await readDB();
-  const encoded = data[key];
-
-  if (typeof encoded !== 'string' || !encoded.length) {
-    return null;
-  }
-
-  const buffer = Buffer.from(encoded, 'base64');
-
-  if (
-    !buffer.length ||
-    buffer.length > MAX_VIDEO_SIZE ||
-    buffer.toString('base64') !== encoded
-  ) {
-    throw new Error('بيانات فيديو القائمة المحفوظ غير صالحة.');
-  }
-
-  const hash = createHash('sha256')
-    .update(buffer)
-    .digest('hex');
-
-  const directory = path.join(
-    ROOT,
-    'database',
-    'subbots',
-    'command-videos'
-  );
-
-  const filePath = path.join(
-    directory,
-    'menu-' + hash + '.mp4'
-  );
-
-  await fs.mkdir(directory, { recursive: true });
-
-  try {
-    const stat = await fs.stat(filePath);
-
-    if (stat.isFile() && stat.size === buffer.length) {
-      return filePath;
-    }
-  } catch {}
-
-  const temporary = filePath + '.' + process.pid + '.tmp';
-
-  try {
-    await fs.writeFile(temporary, buffer, { mode: 0o600 });
-    await fs.rename(temporary, filePath);
-  } catch (error) {
-    await fs.rm(temporary, { force: true }).catch(() => {});
-    throw error;
-  }
-
-  return filePath;
-}
 
 export async function getSubbotCommandVideo(ctx, type) {
   if (!ctx?.subbotSessionId) return null;
