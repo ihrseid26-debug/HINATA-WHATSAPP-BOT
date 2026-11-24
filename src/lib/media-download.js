@@ -6,34 +6,110 @@ import crypto from 'node:crypto';
 import yts from 'yt-search';
 
 const jobs = new Map();
+
 const MAX_VIDEO = 64 * 1024 * 1024;
 const MAX_AUDIO = 15 * 1024 * 1024;
+const MAX_INPUT = 64 * 1024 * 1024;
+const JOB_TTL = 10 * 60 * 1000;
+const MAX_JOBS = 100;
+const MAX_DOWNLOADS = 2;
 
-function run(command, args, maxOutput = 8 * 1024 * 1024) {
+const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
+const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
+
+let activeDownloads = 0;
+let toolsReady = null;
+
+function run(command, args, maxOutput = 8 * 1024 * 1024, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args);
+    let child;
     let stdout = '';
     let stderr = '';
+    let settled = false;
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+
+      if (error) reject(error);
+      else resolve(result);
+    };
+
+    try {
+      child = spawn(command, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
+      });
+    } catch (error) {
+      finish(error);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish(new Error(`${command} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    timer.unref?.();
 
     child.stdout.on('data', chunk => {
-      stdout += chunk.toString();
-      if (stdout.length > maxOutput) {
-        child.kill();
-        reject(new Error('Output too large'));
+      stdoutBytes += chunk.length;
+
+      if (stdoutBytes > maxOutput) {
+        child.kill('SIGKILL');
+        finish(new Error(`${command}: output limit exceeded`));
+        return;
       }
+
+      stdout += chunk.toString();
     });
 
     child.stderr.on('data', chunk => {
-      stderr += chunk.toString();
+      stderrBytes += chunk.length;
+
+      if (stderrBytes <= 256 * 1024) {
+        stderr += chunk.toString();
+      }
     });
 
-    child.on('error', reject);
+    child.on('error', error => finish(error));
 
     child.on('close', code => {
-      if (code === 0) resolve(stdout.trim());
-      else reject(new Error(stderr.slice(-3000) || `${command}: ${code}`));
+      if (code === 0) {
+        finish(null, stdout.trim());
+      } else {
+        finish(new Error(
+          stderr.slice(-3000) || `${command} exited with code ${code}`
+        ));
+      }
     });
   });
+}
+
+async function ensureTools() {
+  if (!toolsReady) {
+    toolsReady = (async () => {
+      try {
+        await run(YT_DLP_PATH, ['--version'], 1024 * 1024, 15000);
+        await run(FFMPEG_PATH, ['-version'], 1024 * 1024, 15000);
+      } catch (error) {
+        toolsReady = null;
+
+        if (error?.code === 'ENOENT') {
+          throw new Error(
+            'أداة yt-dlp أو FFmpeg غير مثبتة على السيرفر أو غير موجودة في PATH.'
+          );
+        }
+
+        throw new Error(`تعذر تشغيل أدوات التحميل: ${error.message}`);
+      }
+    })();
+  }
+
+  return toolsReady;
 }
 
 function formatDuration(seconds) {
@@ -49,31 +125,72 @@ function formatDuration(seconds) {
     : `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function validateUrl(value) {
+  let parsed;
+
+  try {
+    parsed = new URL(String(value).trim());
+  } catch {
+    throw new Error('الرابط غير صالح.');
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('نوع الرابط غير مدعوم.');
+  }
+
+  if (parsed.username || parsed.password) {
+    throw new Error('الروابط التي تحتوي بيانات دخول غير مدعومة.');
+  }
+
+  const host = parsed.hostname.toLowerCase();
+
+  if (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host.endsWith('.local') ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  ) {
+    throw new Error('هذا العنوان غير مسموح.');
+  }
+
+  return parsed.href;
+}
+
 async function getInfo(url) {
-  const raw = await run('yt-dlp', [
+  await ensureTools();
+
+  const raw = await run(YT_DLP_PATH, [
     '--dump-single-json',
     '--skip-download',
     '--no-warnings',
     '--no-playlist',
+    '--socket-timeout', '20',
     '--',
     url
-  ]);
+  ], 12 * 1024 * 1024, 60000);
 
   return JSON.parse(raw);
 }
 
 async function downloadMedia(url, dir, kind) {
+  await ensureTools();
+
   const output = path.join(dir, 'media.%(ext)s');
 
   const args = [
     '--no-playlist',
     '--no-warnings',
     '--no-progress',
+    '--no-part',
+    '--restrict-filenames',
     '--socket-timeout', '25',
-    '--retries', '3',
-    '--fragment-retries', '3',
+    '--retries', '2',
+    '--fragment-retries', '2',
     '--extractor-retries', '2',
-    '--concurrent-fragments', '8',
+    '--concurrent-fragments', '4',
     '--buffer-size', '16K',
     '--max-filesize', '64M',
     '-o', output
@@ -91,16 +208,15 @@ async function downloadMedia(url, dir, kind) {
       '-f', 'ba/b',
       '-x',
       '--audio-format', 'mp3',
-      '--audio-quality', '5'
+      '--audio-quality', '6'
     );
   }
 
   args.push('--', url);
 
-  await run('yt-dlp', args, 1024 * 1024);
+  await run(YT_DLP_PATH, args, 1024 * 1024, 180000);
 
   const files = await fs.readdir(dir);
-
   const candidates = files
     .filter(name => name.startsWith('media.'))
     .map(name => path.join(dir, name));
@@ -108,16 +224,20 @@ async function downloadMedia(url, dir, kind) {
   for (const file of candidates) {
     const stat = await fs.stat(file);
 
-    if (stat.isFile() && stat.size > 0) {
-      return file;
+    if (!stat.isFile() || stat.size <= 0) continue;
+
+    if (stat.size > MAX_INPUT) {
+      throw new Error('حجم الملف الأصلي أكبر من الحد المسموح.');
     }
+
+    return file;
   }
 
-  throw new Error('Downloaded media file not found');
+  throw new Error('لم يتم العثور على الملف بعد التحميل.');
 }
 
 async function makeVoice(input, output) {
-  await run('ffmpeg', [
+  await run(FFMPEG_PATH, [
     '-hide_banner',
     '-loglevel', 'error',
     '-y',
@@ -129,43 +249,74 @@ async function makeVoice(input, output) {
     '-ar', '48000',
     '-f', 'ogg',
     output
-  ]);
+  ], 1024 * 1024, 60000);
 }
 
 function getToken() {
-  return crypto.randomBytes(7).toString('hex');
+  return crypto.randomBytes(8).toString('hex');
+}
+
+function cleanupJobs() {
+  const now = Date.now();
+
+  for (const [token, job] of jobs) {
+    if (!job || job.expires < now) {
+      jobs.delete(token);
+    }
+  }
+
+  while (jobs.size >= MAX_JOBS) {
+    jobs.delete(jobs.keys().next().value);
+  }
+}
+
+function getCommandText(ctx) {
+  if (Array.isArray(ctx.args) && ctx.args.length) {
+    return ctx.args.join(' ').trim();
+  }
+
+  return String(ctx.text || '').trim();
 }
 
 async function sendPreview(ctx, info) {
+  const url = info.webpage_url || info.original_url || info.url;
+
+  if (!url) {
+    throw new Error('تعذر تحديد رابط المحتوى.');
+  }
+
+  cleanupJobs();
+
+  const token = getToken();
+
+  jobs.set(token, {
+    url: validateUrl(url),
+    jid: ctx.jid,
+    sender: ctx.senderJid,
+    expires: Date.now() + JOB_TTL
+  });
+
+  const title = String(info.title || 'بدون عنوان').slice(0, 180);
+  const uploader = String(
+    info.uploader || info.channel || info.author?.name || 'غير معروف'
+  ).slice(0, 100);
+
   const caption = [
     '*╭━━━━━━━〔 ❄️ 𝑨𝒍𝒗𝒂𝒓𝒊𝒂 ❅ 〕━━━━━━━╮*',
     '',
     '┏━━━━━━━━━━━━━━━━━━━━━━┓',
     '❄️ 𝑨𝒍𝒗𝒂𝒓𝒊𝒂 • 𝑴𝑬𝑫𝑰𝑨',
     '',
-    `*_🎬 الــعــنــوان: ${info.title || 'بدون عنوان'}_*`,
-    `*_👤 الــقــنــاة: ${info.uploader || info.channel || 'غير معروف'}_*`,
-    `*_⏱️ الــمــدة: ${formatDuration(info.duration)}_*`,
+    `*_🎬 الــعــنــوان: ${title}_*`,
+    `*_👤 الــقــنــاة: ${uploader}_*`,
+    `*_⏱️ الــمــدة: ${formatDuration(info.duration || info.seconds)}_*`,
     '',
-    '*اخــتــر نــوع الــتــحــمــيــل مــنَ الأَزْرَارِ بِالْأَسْفَل.*',
+    '*اختر نوع التحميل من الأزرار بالأسفل.*',
     '┗━━━━━━━━━━━━━━━━━━━━━━┛',
     '',
     '*╰━━━━━━━〔 ❄️ 𝑨𝒍𝒗𝒂𝒓𝒊𝒂 ❅ 〕━━━━━━━╯*',
     '*🍁 𝑴𝑨𝑫𝑬 𝑩𝒀 𝑨𝒍𝒗𝒂𝒓𝒊𝒂 🍁*'
   ].join('\n');
-
-  const token = getToken();
-
-  jobs.set(token, {
-    url: info.webpage_url || info.original_url,
-    jid: ctx.jid,
-    sender: ctx.senderJid,
-    expires: Date.now() + 10 * 60 * 1000
-  });
-
-  while (jobs.size > 100) {
-    jobs.delete(jobs.keys().next().value);
-  }
 
   const { sendHinataNativeButtons } =
     await import('./native-buttons.js');
@@ -178,7 +329,7 @@ async function sendPreview(ctx, info) {
     buttons: [
       {
         type: 'quick_reply',
-        text: '🎬 تحميل فيديو كامل',
+        text: '🎬 تحميل فيديو',
         id: `.تحميل_فيديو ${token}`
       },
       {
@@ -190,20 +341,125 @@ async function sendPreview(ctx, info) {
   });
 }
 
-async function handleDownload(ctx, kind) {
-  const token = String(ctx.text || '').trim().split(/\s+/)[0];
+async function sendSearchResults(ctx, query) {
+  const result = await Promise.race([
+    yts(query),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Search timed out')), 25000)
+    )
+  ]);
+
+  const videos = (result?.videos || [])
+    .filter(video => video?.url && video?.title)
+    .slice(0, 5);
+
+  if (!videos.length) {
+    return ctx.reply('❌ لم أعثر على نتائج لهذا البحث.');
+  }
+
+  cleanupJobs();
+
+  const token = getToken();
+
+  jobs.set(token, {
+    type: 'search',
+    videos,
+    jid: ctx.jid,
+    sender: ctx.senderJid,
+    expires: Date.now() + JOB_TTL
+  });
+
+  const { sendHinataNativeButtons } =
+    await import('./native-buttons.js');
+
+  const buttons = videos.map((video, index) => ({
+    type: 'quick_reply',
+    text: `🎬 النتيجة ${index + 1}`,
+    id: `.تحميل_اختيار ${token} ${index}`
+  }));
+
+  const lines = [
+    '╭━━〔 ❄️ ALVARIA MEDIA 〕━━╮',
+    '',
+    `🔎 نتائج البحث عن: ${query.slice(0, 100)}`,
+    ''
+  ];
+
+  videos.forEach((video, index) => {
+    lines.push(
+      `${index + 1}. ${String(video.title).slice(0, 120)}`,
+      `👤 ${String(video.author?.name || 'غير معروف').slice(0, 70)}`,
+      `⏱️ ${video.timestamp || 'غير محددة'}`,
+      ''
+    );
+  });
+
+  lines.push('اختر النتيجة لعرض خيارات الفيديو والصوت.');
+
+  await sendHinataNativeButtons(ctx.sock, ctx.jid, {
+    text: lines.join('\n'),
+    title: '❄️ 𝑨𝒍𝒗𝒂𝒓𝒊𝒂 • 𝑺𝑬𝑨𝑹𝑪𝑯',
+    footer: '🍁 ALVARIA MEDIA',
+    buttons
+  });
+}
+
+async function handleSearchSelection(ctx) {
+  const parts = getCommandText(ctx).split(/\s+/);
+  const token = parts[0];
+  const index = Number(parts[1]);
   const job = jobs.get(token);
 
   if (!job || job.expires < Date.now()) {
     jobs.delete(token);
-    return ctx.reply('⌛ انتهت صلاحية الطلب. أرسل رابط التحميل من جديد.');
+    return ctx.reply('⌛ انتهت صلاحية نتائج البحث. أعد البحث من جديد.');
   }
 
   if (job.jid !== ctx.jid || job.sender !== ctx.senderJid) {
-    return ctx.reply('هذا الطلب ليس خاصًا بك.');
+    return ctx.reply('⛔ هذه النتائج ليست خاصة بك.');
+  }
+
+  if (!Number.isInteger(index) || !job.videos?.[index]) {
+    return ctx.reply('❌ الاختيار غير صالح.');
+  }
+
+  const video = job.videos[index];
+  jobs.delete(token);
+
+  try {
+    await sendPreview(ctx, {
+      title: video.title,
+      url: video.url,
+      webpage_url: video.url,
+      thumbnail: video.thumbnail,
+      uploader: video.author?.name,
+      duration: video.seconds
+    });
+  } catch (error) {
+    console.error('[HINATA DOWNLOAD SELECT]', error);
+    await ctx.reply('❌ تعذر تجهيز معاينة هذه النتيجة.');
+  }
+}
+
+async function handleDownload(ctx, kind) {
+  const token = getCommandText(ctx).split(/\s+/)[0];
+  const job = jobs.get(token);
+
+  if (!job || job.expires < Date.now()) {
+    jobs.delete(token);
+    return ctx.reply('⌛ انتهت صلاحية الطلب. أرسل الرابط أو اسم المحتوى مجدداً.');
+  }
+
+  if (job.jid !== ctx.jid || job.sender !== ctx.senderJid) {
+    return ctx.reply('⛔ هذا الطلب ليس خاصاً بك.');
+  }
+
+  if (activeDownloads >= MAX_DOWNLOADS) {
+    return ctx.reply('⏳ توجد عمليات تحميل أخرى الآن. حاول بعد قليل.');
   }
 
   jobs.delete(token);
+  activeDownloads++;
 
   let dir;
 
@@ -211,8 +467,10 @@ async function handleDownload(ctx, kind) {
     await ctx.reply(
       kind === 'video'
         ? '🎬 جارٍ تجهيز الفيديو...'
-        : '🎧 جارٍ تجهيز التسجيل الصوتي...'
+        : '🎧 جارٍ تجهيز الصوت...'
     );
+
+    await ensureTools();
 
     const info = await getInfo(job.url);
 
@@ -231,20 +489,28 @@ async function handleDownload(ctx, kind) {
       const video = await fs.readFile(file);
       const ext = path.extname(file).toLowerCase();
 
+      const mimetype = {
+        '.mp4': 'video/mp4',
+        '.webm': 'video/webm',
+        '.mkv': 'video/x-matroska'
+      }[ext] || 'video/mp4';
+
       await ctx.sock.sendMessage(ctx.jid, {
         video,
-        mimetype: ext === '.mp4' ? 'video/mp4' : 'video/webm',
-        caption: `❄️ ${info.title || 'ALVARIA MEDIA'}`
+        mimetype,
+        caption: `❄️ ${String(info.title || 'ALVARIA MEDIA').slice(0, 180)}`
       }, { quoted: ctx.message });
 
     } else {
-      if (stat.size > MAX_AUDIO) {
-        throw new Error('Audio exceeds size limit');
-      }
-
       const voicePath = path.join(dir, 'voice.ogg');
 
       await makeVoice(file, voicePath);
+
+      const voiceStat = await fs.stat(voicePath);
+
+      if (voiceStat.size === 0 || voiceStat.size > MAX_AUDIO) {
+        throw new Error('Audio exceeds WhatsApp size limit');
+      }
 
       const audio = await fs.readFile(voicePath);
 
@@ -256,11 +522,21 @@ async function handleDownload(ctx, kind) {
     }
 
   } catch (error) {
-    console.error('[ALVARIA DOWNLOAD]', error);
-    await ctx.reply(
-      '❌ تعذّر إكمال التحميل. تحقق من الرابط وأدوات yt-dlp وFFmpeg.'
-    );
+    console.error('[HINATA DOWNLOAD]', error);
+
+    const message = String(error?.message || '');
+
+    if (message.includes('غير مثبت') || message.includes('not found')) {
+      await ctx.reply('❌ أدوات التحميل غير متاحة على السيرفر. راجع إعدادات Railway.');
+    } else if (message.toLowerCase().includes('max-filesize') || message.includes('أكبر من الحد')) {
+      await ctx.reply('⚠️ حجم الملف أكبر من الحد المسموح.');
+    } else {
+      await ctx.reply('❌ تعذر إكمال التحميل. قد يكون الرابط غير مدعوم أو المحتوى غير متاح حالياً.');
+    }
+
   } finally {
+    activeDownloads--;
+
     if (dir) {
       await fs.rm(dir, {
         recursive: true,
@@ -272,55 +548,72 @@ async function handleDownload(ctx, kind) {
 
 export function registerMediaDownloadCommands(commands) {
   commands.set('تحميل', {
-    description: 'عرض خيارات تحميل الوسائط من رابط',
+    description: 'تحميل فيديو أو صوت من رابط أو البحث بالاسم',
     reaction: '🔎',
     handler: async ctx => {
-      const url = String(ctx.text || '').trim();
+      const value = getCommandText(ctx);
 
-      if (!url) {
-        return ctx.reply('📥 𝑨𝒍𝒗𝒂𝒓𝒊𝒂 • 𝑫𝑶𝑾𝑵𝑳𝑶𝑨𝑫\n\nأرسل رابط الفيديو أو المحتوى بعد الأمر.\nسأعرض لك صورة مصغرة ومعلومات الرابط، ثم تختار:\n🎬 تحميل فيديو كامل\n🎧 تحميل صوت\n\nمثال: .تحميل https://example.com/media');
-      }
-
-      let parsed;
-
-      try {
-        parsed = new URL(url);
-      } catch {
-        return ctx.reply('❌ الرابط غير صالح.');
-      }
-
-      if (!['http:', 'https:'].includes(parsed.protocol)) {
-        return ctx.reply('❌ نوع الرابط غير مدعوم.');
+      if (!value) {
+        return ctx.reply(
+          '📥 𝑨𝒍𝒗𝒂𝒓𝒊𝒂 • 𝑫𝑶𝑾𝑵𝑳𝑶𝑨𝑫\n\n' +
+          'أرسل رابط فيديو أو اكتب اسم المحتوى للبحث عنه.\n\n' +
+          'أمثلة:\n' +
+          '.تحميل Naruto AMV\n' +
+          '.تحميل https://example.com/video\n\n' +
+          'بعدها اختر النتيجة ونوع التحميل.'
+        );
       }
 
       try {
-        await ctx.reply('🔎 جارٍ قراءة معلومات الرابط...');
+        await ctx.reply('🔎 جارٍ البحث أو قراءة معلومات الرابط...');
 
-        const info = await getInfo(url);
+        let url = null;
 
-        if (!info || !info.title) {
-          return ctx.reply('❌ لم أستطع قراءة معلومات هذا الرابط.');
+        try {
+          url = validateUrl(value);
+        } catch {
+          // إذا لم يكن رابطاً، نبحث عنه بالاسم.
         }
 
-        await sendPreview(ctx, info);
+        if (url) {
+          const info = await getInfo(url);
+
+          if (!info?.title) {
+            return ctx.reply('❌ لم أستطع قراءة معلومات هذا الرابط.');
+          }
+
+          return await sendPreview(ctx, info);
+        }
+
+        if (value.length > 150) {
+          return ctx.reply('⚠️ عبارة البحث طويلة جداً.');
+        }
+
+        await sendSearchResults(ctx, value);
 
       } catch (error) {
-        console.error('[ALVARIA PREVIEW]', error);
+        console.error('[HINATA DOWNLOAD SEARCH]', error);
         await ctx.reply(
-          '❌ تعذّر قراءة الرابط. تأكد من تثبيت yt-dlp وأن الرابط متاح.'
+          '❌ تعذر البحث أو قراءة الرابط. تحقق من اتصال السيرفر وأدوات التحميل.'
         );
       }
     }
   });
 
+  commands.set('تحميل_اختيار', {
+    description: 'اختيار نتيجة من البحث',
+    reaction: '🎬',
+    handler: handleSearchSelection
+  });
+
   commands.set('تحميل_فيديو', {
-    description: 'إرسال الفيديو',
+    description: 'تحميل الفيديو',
     reaction: '🎬',
     handler: ctx => handleDownload(ctx, 'video')
   });
 
   commands.set('تحميل_صوت', {
-    description: 'إرسال الصوت كتسجيل',
+    description: 'تحميل الصوت كتسجيل',
     reaction: '🎧',
     handler: ctx => handleDownload(ctx, 'audio')
   });
