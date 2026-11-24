@@ -68,6 +68,7 @@ export function createGroupSettingsStore(databaseDir) {
     return {
       ...group,
       mode: group?.mode === 'admins' ? 'admins' : 'members',
+      privateEnabled: group?.privateEnabled === true,
       protection
     };
   }
@@ -155,6 +156,24 @@ export function createGroupSettingsStore(databaseDir) {
       };
       await persist();
       return normalize(data[groupJid]);
+    },
+
+    async setPrivateChatEnabled(chatJid, enabled) {
+      if (typeof enabled !== 'boolean') {
+        throw new TypeError('Private chat state must be boolean.');
+      }
+
+      const data = await load();
+      const current = normalize(data[chatJid]);
+
+      data[chatJid] = {
+        ...current,
+        privateEnabled: enabled,
+        updatedAt: new Date().toISOString()
+      };
+
+      await persist();
+      return normalize(data[chatJid]);
     },
 
     async toggleProtection(groupJid, feature) {

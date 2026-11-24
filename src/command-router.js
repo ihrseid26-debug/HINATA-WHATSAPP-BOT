@@ -274,10 +274,32 @@ export async function handleIncomingMessage({
     'معلومات'
   ].includes(parsed.name));
 
-  // يبقى البوت مخصصًا للمجموعات، مع السماح بتأكيد التنصيب وإلغائه في الخاص فقط.
-  if (config.groupsOnly && !isGroup && !privateAllowed) return;
+  const isPrivateChat =
+    !isGroup &&
+    (
+      jid.endsWith('@s.whatsapp.net') ||
+      jid.endsWith('@c.us') ||
+      jid.endsWith('@lid')
+    );
+
+  const privateStartCommand = Boolean(
+    isPrivateChat &&
+    subbotSessionId &&
+    parsed?.name === 'تشغيل'
+  );
 
   const groupSettings = await settingsStore.get(jid);
+  const privateChatEnabled =
+    isPrivateChat && groupSettings.privateEnabled === true;
+
+  // السماح بالخاص المفعّل لهذا البوت الفرعي وهذه المحادثة فقط.
+  if (
+    config.groupsOnly &&
+    !isGroup &&
+    !privateAllowed &&
+    !privateStartCommand &&
+    !privateChatEnabled
+  ) return;
 
   const senderCandidates = [
     key.participant,
@@ -326,6 +348,41 @@ export async function handleIncomingMessage({
   );
 
   const isOwner = isMainOwner || isSubbotOwner;
+
+  if (privateStartCommand) {
+    try {
+      await settingsStore.setPrivateChatEnabled(jid, true);
+
+      await sock.sendMessage(
+        jid,
+        {
+          text: formatHinataReply(
+            '✅ تم تشغيل هيناتا في هذه المحادثة الخاصة. يمكنك الآن استخدام أوامر البوت وميزاته هنا.'
+          )
+        },
+        { quoted: message }
+      );
+
+      await reactToMessage(sock, jid, message, '✅');
+    } catch (error) {
+      logger.error(
+        { err: error, jid },
+        'Could not enable private subbot chat'
+      );
+
+      await sock.sendMessage(
+        jid,
+        {
+          text: formatHinataReply(
+            '❌ تعذر تشغيل البوت في هذه المحادثة. حاول مجددًا.'
+          )
+        },
+        { quoted: message }
+      );
+    }
+
+    return;
+  }
 
   const controlNames = ['نام', 'استيقط', 'استيقظ', 'خاص', 'عام'];
 
