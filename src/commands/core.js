@@ -1574,39 +1574,106 @@ register(
 // HINATA_EVENTS_OLD_INTERFACES_REMOVED_V1
 
 
-// ❅ قسم الميديا — ALVARIA MEDIA STUDIO.
 
-  // HINATA_MEDIA_STUDIO_BUTTON_SELECT_V1
+// ❄️ HINATA MEDIA CENTER — RANDOM MENU STYLE
+
 register(
   ['قسم_الميديا'],
   'مركز الميديا التفاعلي',
   async ctx => {
-    const menuText = [
-      '*╭━━〔 ❄️ 𝑨𝑳𝑽𝑨𝑹𝑰𝑨 〕━━╮*',
-      '',
-      '*🎵 مَـرْكَـزُ الـمِـيـديـا*',
-      '*『 MEDIA • MUSIC • IMAGES 』*',
-      '',
-      '❅ اختر الرجوع للعودة إلى القائمة الرئيسية.',
-      '',
-      '*╰━━〔 ❄️ MEDIA STUDIO 〕━━╯*'
-    ].join('\\n');
+    const { getSubbotSectionImage } =
+      await import('../lib/subbot-section-images.js');
 
-    await sendHinataSelect(
-      ctx,
-      menuText,
-      [
-        {
-          title: '⬅️ رجوع إلى القائمة الرئيسية',
-          description: 'العودة إلى قائمة أقسام البوت',
-          id: '.اوامر'
-        }
-      ],
-      '🎵 MEDIA STUDIO',
-      '📋 اختيار'
-    );
+    const { sendHinataNativeButtons } =
+      await import('../lib/native-buttons.js');
+
+    let imageBuffer = null;
+
+    try {
+      imageBuffer = await getSubbotSectionImage(ctx, 'الميديا');
+    } catch (error) {
+      console.error('[HINATA MEDIA IMAGE ERROR]', error);
+    }
+
+    const text = [
+      '*❃⋅━̊━̊━̊---━̊━̊━̊━̊❄️━̊━̊━̊━̊━̊━̊━̊⋅❃*',
+      '',
+      '*🌸 مَـرْكَـزُ هِـيـنـاتـا لِـلـمِـيـديـا*',
+      '*『 HINATA • MEDIA STUDIO 』*',
+      '',
+      '╭━━〔 🎬 خدمات الميديا 〕━━╮',
+      '',
+      '🎵 الموسيقى:',
+      'البحث عن الأغاني عبر SoundCloud.',
+      '',
+      '🖼️ الصور:',
+      'البحث عن الصور عبر Pinterest.',
+      '',
+      '🎬 الإيديت:',
+      'البحث عن مقاطع Funk Edits.',
+      '',
+      '📥 التحميل:',
+      'البحث عن فيديو أو صوت بالاسم أو الرابط.',
+      '',
+      '❅ اختر الخدمة المناسبة من القائمة بالأسفل.',
+      '',
+      '*❃⋅━̊━̊━̊---━̊━̊━̊━̊❄️━̊━̊━̊━̊━̊━̊━̊⋅❃*',
+      '*🌸 HINATA MEDIA CENTER*'
+    ].join('\n');
+
+    await sendHinataNativeButtons(ctx.sock, ctx.jid, {
+      ...(imageBuffer ? { imageBuffer } : {}),
+      text,
+      footer: '🌸 HINATA • MEDIA STUDIO',
+      buttons: [{
+        type: 'single_select',
+        title: '🎬 قائمة الميديا',
+        sections: [
+          {
+            title: '❅ الموسيقى والصور',
+            rows: [
+              {
+                title: '🎵 البحث عن أغنية',
+                description: 'البحث في SoundCloud',
+                id: '.اغنيه'
+              },
+              {
+                title: '🖼️ البحث عن صورة',
+                description: 'البحث في Pinterest',
+                id: '.صورة'
+              }
+            ]
+          },
+          {
+            title: '❅ الفيديوهات والتحميل',
+            rows: [
+              {
+                title: '🎬 البحث عن إيديت',
+                description: 'البحث عن Funk Edits',
+                id: '.ايديت'
+              },
+              {
+                title: '📥 تحميل فيديو أو صوت',
+                description: 'البحث بالاسم أو استعمال رابط',
+                id: '.تحميل'
+              }
+            ]
+          },
+          {
+            title: '❅ التنقل',
+            rows: [
+              {
+                title: '↩️ الرجوع إلى القائمة الرئيسية',
+                description: 'العودة إلى قائمة أوامر HINATA',
+                id: '.اوامر'
+              }
+            ]
+          }
+        ]
+      }]
+    });
   },
-  '🎵'
+  '🎬'
 );
 
 // ❅ قسم الملصقات — ALVARIA Sticker Studio.
