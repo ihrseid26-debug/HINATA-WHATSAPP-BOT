@@ -3,10 +3,12 @@ import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { createWriteStream } from 'node:fs';
 import SoundCloud from '@zibot/scdl';
 
 const soundcloud = new SoundCloud({ init: true });
-
 const songJobs = new Map();
 
 const MAX_RESULTS = 10;
@@ -14,6 +16,8 @@ const MAX_SOURCE_SIZE = 64 * 1024 * 1024;
 const MAX_AUDIO_SIZE = 15 * 1024 * 1024;
 const SONG_TTL = 10 * 60 * 1000;
 const MAX_JOBS = 100;
+const DOWNLOAD_TIMEOUT = 180000;
+const FFMPEG_TIMEOUT = 180000;
 
 function getToken() {
   return crypto.randomBytes(8).toString('hex');
@@ -54,7 +58,6 @@ function commandArgs(ctx, commandName) {
 
 async function removeJob(token) {
   const job = songJobs.get(token);
-
   if (!job) return;
 
   songJobs.delete(token);
@@ -72,6 +75,8 @@ async function removeJob(token) {
 }
 
 function scheduleCleanup(token, job) {
+  if (job.timer) clearTimeout(job.timer);
+
   job.timer = setTimeout(() => {
     if (songJobs.get(token) === job) {
       removeJob(token).catch(() => {});
@@ -79,6 +84,63 @@ function scheduleCleanup(token, job) {
   }, SONG_TTL);
 
   job.timer.unref?.();
+}
+
+async function downloadTrackToFile(track, outputFile) {
+  const controller = new AbortController();
+
+  const timer = setTimeout(() => {
+    controller.abort(new Error('SoundCloud download timed out'));
+  }, DOWNLOAD_TIMEOUT);
+
+  timer.unref?.();
+
+  let totalBytes = 0;
+
+  const limiter = new Transform({
+    transform(chunk, encoding, callback) {
+      totalBytes += chunk.length;
+
+      if (totalBytes > MAX_SOURCE_SIZE) {
+        callback(new Error('SoundCloud source exceeded size limit'));
+        return;
+      }
+
+      callback(null, chunk);
+    }
+  });
+
+  try {
+    const stream = await soundcloud.downloadTrack(
+      track.permalink_url,
+      {
+        seek: 0,
+        signal: controller.signal
+      }
+    );
+
+    if (!stream || typeof stream.pipe !== 'function') {
+      throw new Error('SoundCloud did not return an audio stream');
+    }
+
+    await pipeline(
+      stream,
+      limiter,
+      createWriteStream(outputFile),
+      { signal: controller.signal }
+    );
+
+    const stat = await fs.stat(outputFile);
+
+    if (!stat.isFile() || stat.size === 0) {
+      throw new Error('Downloaded audio is empty');
+    }
+
+    return outputFile;
+
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function makeVoice(input, output) {
@@ -91,13 +153,34 @@ async function makeVoice(input, output) {
       '-vn',
       '-c:a', 'libopus',
       '-b:a', '64k',
+      '-vbr', 'on',
+      '-application', 'voip',
       '-ac', '1',
       '-ar', '48000',
       '-f', 'ogg',
       output
-    ]);
+    ], {
+      stdio: ['ignore', 'ignore', 'pipe']
+    });
 
     let stderr = '';
+    let settled = false;
+
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+
+      if (error) reject(error);
+      else resolve();
+    };
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish(new Error('FFmpeg conversion timed out'));
+    }, FFMPEG_TIMEOUT);
+
+    timer.unref?.();
 
     child.stderr.on('data', chunk => {
       stderr += chunk.toString();
@@ -107,13 +190,15 @@ async function makeVoice(input, output) {
       }
     });
 
-    child.on('error', reject);
+    child.on('error', finish);
 
     child.on('close', code => {
       if (code === 0) {
-        resolve();
+        finish();
       } else {
-        reject(new Error(stderr || `ffmpeg exited with code ${code}`));
+        finish(new Error(
+          stderr || `FFmpeg exited with code ${code}`
+        ));
       }
     });
   });
@@ -129,6 +214,58 @@ async function makeVoice(input, output) {
   }
 
   return output;
+}
+
+async function prepareTrack(job, index) {
+  const existing = job.audioFiles.get(index);
+
+  if (existing) {
+    try {
+      await fs.access(existing);
+      return existing;
+    } catch {
+      job.audioFiles.delete(index);
+    }
+  }
+
+  const pending = job.downloads.get(index);
+  if (pending) return pending;
+
+  const task = (async () => {
+    const track = job.tracks[index];
+
+    if (!track) {
+      throw new Error('Selected SoundCloud track was not found');
+    }
+
+    const sourceFile = path.join(
+      job.directory,
+      `source-${index}.audio`
+    );
+
+    const voiceFile = path.join(
+      job.directory,
+      `voice-${index}.ogg`
+    );
+
+    await downloadTrackToFile(track, sourceFile);
+    await makeVoice(sourceFile, voiceFile);
+
+    job.audioFiles.set(index, voiceFile);
+
+    await fs.unlink(sourceFile).catch(() => {});
+
+    return voiceFile;
+  })();
+
+  job.downloads.set(index, task);
+
+  try {
+    return await task;
+  } catch (error) {
+    job.downloads.delete(index);
+    throw error;
+  }
 }
 
 async function sendTrackArtwork(ctx, track, caption) {
@@ -190,7 +327,9 @@ export function registerSoundCloudSongCommand(commands) {
         .slice(0, MAX_RESULTS);
 
       if (!tracks.length) {
-        return ctx.reply('❌ لم أعثر على نتائج مناسبة في SoundCloud.');
+        return ctx.reply(
+          '❌ لم أعثر على نتائج مناسبة في SoundCloud.'
+        );
       }
 
       directory = await fs.mkdtemp(
@@ -204,7 +343,9 @@ export function registerSoundCloudSongCommand(commands) {
         sender: ctx.senderJid,
         tracks,
         directory,
-        timer: null
+        timer: null,
+        audioFiles: new Map(),
+        downloads: new Map()
       };
 
       songJobs.set(token, job);
@@ -222,7 +363,9 @@ export function registerSoundCloudSongCommand(commands) {
 
       const rows = tracks.map((track, index) => {
         const artist = track.user?.username || 'فنان غير معروف';
-        const title = String(track.title).replace(/\s+/g, ' ').trim();
+        const title = String(track.title)
+          .replace(/\s+/g, ' ')
+          .trim();
 
         return {
           title: `${index + 1}. ${title}`.slice(0, 24),
@@ -242,7 +385,7 @@ export function registerSoundCloudSongCommand(commands) {
         `📀 عدد النتائج: ${tracks.length}`,
         '',
         'اختر الأغنية من القائمة بالأسفل.',
-        'سيتم تجهيز التسجيل بعد اختيارك.',
+        'سيتم تنزيل وتجهيز التسجيل بعد اختيارك.',
         '',
         '╰━━〔 HINATA BOT 〕━━╯'
       ].join('\n');
@@ -275,7 +418,7 @@ export function registerSoundCloudSongCommand(commands) {
 
       await ctx.reply(
         '❌ تعذّر البحث في SoundCloud حاليًا.\n' +
-        'قد تكون الخدمة غير متاحة مؤقتًا، حاول لاحقًا.'
+        'حاول مرة أخرى لاحقًا.'
       );
     }
   }
@@ -298,7 +441,9 @@ export function registerSoundCloudSongCommand(commands) {
     const job = songJobs.get(token);
 
     if (!job) {
-      return ctx.reply('⌛ انتهت صلاحية القائمة. أرسل البحث مجددًا.');
+      return ctx.reply(
+        '⌛ انتهت صلاحية القائمة. أرسل البحث مجددًا.'
+      );
     }
 
     if (
@@ -314,29 +459,58 @@ export function registerSoundCloudSongCommand(commands) {
       return ctx.reply('❌ الأغنية المختارة غير موجودة.');
     }
 
-    const title = String(track.title || 'بدون عنوان').slice(0, 150);
-    const artist = String(
-      track.user?.username || 'فنان غير معروف'
-    ).slice(0, 100);
+    try {
+      await ctx.reply('⏳ جارٍ تنزيل الأغنية وتجهيز التسجيل الصوتي...');
 
-    const caption = [
-      '╭━━〔 🌸 HINATA MUSIC 〕━━╮',
-      '',
-      `🎼 الأغنية: ${title}`,
-      `🎤 الفنان: ${artist}`,
-      `⏱️ المدة: ${formatDuration(track.duration)}`,
-      '',
-      '🎧 للاستماع إلى المقطع:',
-      track.permalink_url,
-      '',
-      '╰━━〔 HINATA BOT 〕━━╯'
-    ].join('\n');
+      const voiceFile = await prepareTrack(job, index);
+      const audio = await fs.readFile(voiceFile);
 
-    await sendTrackArtwork(ctx, track, caption);
+      const title = String(track.title || 'بدون عنوان')
+        .slice(0, 150);
+
+      const artist = String(
+        track.user?.username || 'فنان غير معروف'
+      ).slice(0, 100);
+
+      const caption = [
+        '╭━━〔 🌸 HINATA MUSIC 〕━━╮',
+        '',
+        `🎼 الأغنية: ${title}`,
+        `🎤 الفنان: ${artist}`,
+        `⏱️ المدة: ${formatDuration(track.duration)}`,
+        '🎧 تم تجهيز التسجيل الصوتي بنجاح.',
+        '',
+        '╰━━〔 HINATA BOT 〕━━╯'
+      ].join('\n');
+
+      await sendTrackArtwork(ctx, track, caption);
+
+      await ctx.sock.sendMessage(
+        ctx.jid,
+        {
+          audio,
+          mimetype: 'audio/ogg; codecs=opus',
+          ptt: true
+        },
+        {
+          quoted: ctx.message
+        }
+      );
+
+      scheduleCleanup(token, job);
+
+    } catch (error) {
+      console.error('[HINATA SOUNDCLOUD SELECT]', error);
+
+      await ctx.reply(
+        '❌ تعذّر تجهيز أو إرسال التسجيل الصوتي.\n' +
+        'قد لا يكون التدفق الصوتي متاحًا حاليًا لهذه النتيجة.'
+      );
+    }
   }
 
   const searchCommand = {
-    description: 'البحث عن الأغاني في SoundCloud',
+    description: 'البحث عن الأغاني في SoundCloud وإرسالها كتسجيل صوتي',
     reaction: '🎵',
     handler: searchHandler
   };
@@ -346,7 +520,7 @@ export function registerSoundCloudSongCommand(commands) {
   }
 
   commands.set('اغنيه_اختيار', {
-    description: 'اختيار أغنية من نتائج SoundCloud',
+    description: 'تنزيل وإرسال الأغنية المختارة من SoundCloud',
     reaction: '🎧',
     handler: selectSongHandler
   });
