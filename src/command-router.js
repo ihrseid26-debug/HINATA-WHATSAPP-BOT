@@ -738,8 +738,9 @@ const command = coreCommands.get(parsed.name);
   };
 
   try {
-    await command.handler(ctx);
+    // HINATA: التفاعل فور بدء تنفيذ الأمر.
     await reactToMessage(sock, jid, message, command.reaction);
+    await command.handler(ctx);
   } catch (error) {
     console.error(
       '\n[ALVARIA COMMAND ERROR]',
