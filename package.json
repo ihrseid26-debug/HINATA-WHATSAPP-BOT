@@ -16,6 +16,7 @@
     "@kaels/casileys": "github:kyleee-max/casileys#main",
     "@queenanya/baileys": "^9.10.1",
     "@whiskeysockets/baileys": "7.0.0-rc14",
+    "@zibot/scdl": "^0.1.6",
     "baileys_helper": "^1.0.6",
     "chess.js": "^1.4.0",
     "dotenv": "^16.4.7",

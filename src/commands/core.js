@@ -5,7 +5,8 @@ import { registerAIRichCommands } from '../lib/airich.js';
 import { registerAISectionCommands } from '../lib/ai-section.js';
 import { registerHinataEvolutionCommand } from '../lib/hinata-evolution.js';
 import debugSubsCommand from './debug_subs.js';
-import { registerMediaDownloadCommands, registerSongSearchCommand } from '../lib/media-download.js';
+import { registerMediaDownloadCommands } from '../lib/media-download.js';
+import { registerSoundCloudSongCommand } from '../lib/soundcloud-music.js';
 import { registerCityRacingCommands } from '../lib/city-racing.js';
 import { registerMarasemCommands } from '../lib/marasem.js';
 import { registerEventsCommands } from '../lib/events.js';
@@ -2625,7 +2626,7 @@ import reportCommand from './report.js';
 registerUnoCommands(register);
 
 // HINATA_SONG_SEARCH_COMMAND_V2
-registerSongSearchCommand(coreCommands);
+registerSoundCloudSongCommand(coreCommands);
 
 // ─── تسجيل أمر .تبنيد الشامل للهجوم الجماعي (للمطور حصرياً) ───
 try {
