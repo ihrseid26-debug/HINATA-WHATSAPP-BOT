@@ -309,7 +309,7 @@ export function registerSoundCloudSongCommand(commands) {
     let token = null;
 
     try {
-      await ctx.reply('🔎 جارٍ البحث في SoundCloud...');
+      // البحث بصمت وإرسال رسالة النتائج فقط.
 
       const results = await soundcloud.search({
         query,
@@ -378,22 +378,30 @@ export function registerSoundCloudSongCommand(commands) {
         await import('./native-buttons.js');
 
       const text = [
-        '╭━━〔 🌸 HINATA MUSIC 〕━━╮',
+        '❃⋅━̊━̊━̊---━̊━̊━̊━̊❄️━̊━̊━̊━̊━̊━̊━̊⋅❃',
         '',
-        '🎵 نتائج البحث في SoundCloud',
-        `🔎 البحث: ${query}`,
-        `📀 عدد النتائج: ${tracks.length}`,
+        '❃ الـبـحـث ˼‏📌˹ ⇣',
         '',
-        'اختر الأغنية من القائمة بالأسفل.',
-        'سيتم تنزيل وتجهيز التسجيل بعد اختيارك.',
+        `- •「 ${query} 」•`,
         '',
-        '╰━━〔 HINATA BOT 〕━━╯'
+        '❃ عـدد الـنـتـائـج ˼‏📊˹ ⇣',
+        '',
+        `- •「 ${tracks.length} 」•`,
+        '',
+        '❃ الـتـحـمـيـل ˼‏👇˹ ⇣',
+        '',
+        '- •「 اخـتـر الأغـنـيـة مـن الـزر وهـتـتـحـمـل لـوحـدهـا 」•',
+        '',
+        '❃⋅━̊━̊━̊---━̊━̊━̊━̊❄️━̊━̊━̊━̊━̊━̊━̊⋅❃'
       ].join('\n');
+
+      const thumbnail = tracks.find(track => track.artwork_url)?.artwork_url || null;
 
       await sendHinataNativeButtons(ctx.sock, ctx.jid, {
         text,
-        title: '🎧 HINATA • SOUNDCLOUD',
-        footer: '🌸 اختر الأغنية المناسبة',
+        title: '〘 نـتـائـج بـحـث SoundCloud ۪ ۫۫ 〙',
+        footer: '❄️ 𝑨𝒍𝒗𝒂𝒓𝒊𝒂',
+        imageUrl: thumbnail,
         buttons: [{
           type: 'single_select',
           title: '🎵 عرض الأغاني',
@@ -460,30 +468,8 @@ export function registerSoundCloudSongCommand(commands) {
     }
 
     try {
-      await ctx.reply('⏳ جارٍ تنزيل الأغنية وتجهيز التسجيل الصوتي...');
-
       const voiceFile = await prepareTrack(job, index);
       const audio = await fs.readFile(voiceFile);
-
-      const title = String(track.title || 'بدون عنوان')
-        .slice(0, 150);
-
-      const artist = String(
-        track.user?.username || 'فنان غير معروف'
-      ).slice(0, 100);
-
-      const caption = [
-        '╭━━〔 🌸 HINATA MUSIC 〕━━╮',
-        '',
-        `🎼 الأغنية: ${title}`,
-        `🎤 الفنان: ${artist}`,
-        `⏱️ المدة: ${formatDuration(track.duration)}`,
-        '🎧 تم تجهيز التسجيل الصوتي بنجاح.',
-        '',
-        '╰━━〔 HINATA BOT 〕━━╯'
-      ].join('\n');
-
-      await sendTrackArtwork(ctx, track, caption);
 
       await ctx.sock.sendMessage(
         ctx.jid,
