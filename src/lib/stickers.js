@@ -148,9 +148,15 @@ async function sendSticker(ctx, buffer, caption, options = {}) {
     );
   }
 
+  const stickerMessage = { sticker: stickerBuffer };
+
+  if (options.stickerAudio) {
+    stickerMessage.stickerAudio = options.stickerAudio;
+  }
+
   await ctx.sock.sendMessage(
     ctx.jid,
-    { sticker: stickerBuffer },
+    stickerMessage,
     { quoted: ctx.message }
   );
 
@@ -595,6 +601,91 @@ async function videoSticker(ctx) {
 }
 
 
+async function hatSticker(ctx) {
+  const media = await getMedia(ctx, ['videoMessage']);
+
+  if (!media) {
+    await ctx.reply('🎧 ردّ على فيديو يحتوي صوتًا، ثم اكتب .هات');
+    return;
+  }
+
+  let audio;
+
+  try {
+    // استخراج الصوت كاملاً من الفيديو بصيغة OGG/Opus
+    audio = await ffmpeg(media.buffer, 'ogg', [
+      '-vn',
+      '-c:a', 'libopus',
+      '-b:a', '96k',
+      '-application', 'audio',
+      '-f', 'ogg'
+    ]);
+  } catch {
+    await ctx.reply(
+      '⚠️ لم أستطع استخراج صوت من الفيديو. تأكد أن الفيديو يحتوي على صوت.'
+    );
+    return;
+  }
+
+  // الملصق مربع، والحركة قصيرة؛ الصوت يبقى كاملاً.
+  const attempts = [
+    { duration: '5', fps: '8', quality: '50' },
+    { duration: '5', fps: '8', quality: '40' },
+    { duration: '4', fps: '6', quality: '35' }
+  ];
+
+  let webp = null;
+
+  for (const attempt of attempts) {
+    try {
+      const candidate = await ffmpeg(media.buffer, 'webp', [
+        '-t', attempt.duration,
+        '-vf',
+        'fps=' + attempt.fps +
+          ',scale=320:320:force_original_aspect_ratio=decrease' +
+          ',pad=320:320:(ow-iw)/2:(oh-ih)/2:color=0x00000000',
+        '-c:v', 'libwebp',
+        '-lossless', '0',
+        '-q:v', attempt.quality,
+        '-loop', '0',
+        '-an'
+      ]);
+
+      const validWebp =
+        candidate.length >= 12 &&
+        candidate.toString('ascii', 0, 4) === 'RIFF' &&
+        candidate.toString('ascii', 8, 12) === 'WEBP';
+
+      // حد تقريبي لحجم الملصق المتحرك.
+      if (validWebp && candidate.length <= 500 * 1024) {
+        webp = candidate;
+        break;
+      }
+    } catch {
+      // جرّب إعداد ضغط أخف في المحاولة التالية.
+    }
+  }
+
+  if (!webp) {
+    await ctx.reply(
+      '⚠️ لم أتمكن من ضغط حركة الفيديو إلى حجم ملصق مناسب. ' +
+      'جرّب فيديو أقصر أو أقل حركة.'
+    );
+    return;
+  }
+
+  await sendSticker(ctx, webp, null, {
+    stickerAudio: audio,
+    metadataOptions: {
+      packId: 'com.hinata.soundstickers',
+      packName: '♔༻ HINATA • SOUND STICKER ༺♔',
+      publisher: '♔༻ 𝑯𝑰𝑵𝑨𝑻𝑨 • 𝑩𝑶𝑻 ༺♔ 🌸✨🎞️🎧',
+      emojis: ['🎵', '🌸', '✨', '🎧']
+    }
+  });
+}
+
+
 async function extractVideoFrame(ctx) {
   const media = await getMedia(ctx, ['videoMessage']);
   if (!media) {
@@ -823,6 +914,9 @@ const operations = {
   'ستيكر_متحرك': videoSticker,
 
   'ستيكر_فيديو': videoSticker,
+    'هات': 'ملصق مربع متحرك مع الصوت داخل نفس رسالة الملصق',
+
+  'هات': hatSticker,
 
   'ستيكر_نص': textSticker,
 
@@ -858,7 +952,7 @@ export function registerStickerCommands(commands) {
         },
         {
           title: '🎞️ الملصقات المتحركة والفيديو',
-          commands: ['ستيكر_متحرك', 'ستيكر_فيديو', 'استخراج_ملصق']
+          commands: ['ستيكر_متحرك', 'ستيكر_فيديو', 'هات', 'استخراج_ملصق']
         },
         {
           title: '✂️ القص والحجم والجودة',

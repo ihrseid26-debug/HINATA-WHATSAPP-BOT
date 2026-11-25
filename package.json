@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node src/index.js",
     "check": "node scripts/check.js",
-    "test": "node --test"
+    "test": "node --test",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@kaels/casileys": "github:kyleee-max/casileys#main",
@@ -29,6 +30,7 @@
     "zqbaileys_helper": "github:zqdevelopers/zq_baileys_helper#main"
   },
   "devDependencies": {
-    "patch-package": "^8.0.1"
+    "patch-package": "^8.0.1",
+    "protobufjs-cli": "^1.1.3"
   }
 }
