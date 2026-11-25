@@ -29,7 +29,7 @@ async function ensureFfmpeg() {
 const PACK_NAME = '❄️ 𝑨𝒍𝒗𝒂𝒓𝒊𝒂 𝑺𝑻𝑰𝑪𝑲𝑬𝑹𝑺';
 const PACK_PUBLISHER = '🍁 𝑨𝒍𝒗𝒂𝒓𝒊𝒂 𝑩𝑶𝑻 🍁';
 
-const MAX_STICKERS = 30;
+const MAX_STICKERS = 40;
 const MAX_IMAGE_SIZE = 12 * 1024 * 1024;
 const REQUEST_TIMEOUT = 15000;
 const DOWNLOAD_CONCURRENCY = 3;
@@ -242,7 +242,7 @@ async function createStickerPack(ctx, query) {
         .filter(Boolean)
         .filter(isPinterestImageUrl)
     )
-  ].slice(0, MAX_STICKERS);
+  ].slice(0, MAX_STICKERS + 10);
 
   if (urls.length < 3) {
     throw new Error('لم أجد صوراً كافية لإنشاء الحزمة');
@@ -253,7 +253,7 @@ async function createStickerPack(ctx, query) {
   );
 
   try {
-    const stickerBuffers = await mapWithConcurrency(
+    const stickerCandidates = await mapWithConcurrency(
       urls,
       DOWNLOAD_CONCURRENCY,
       async (url, index) => {
@@ -281,6 +281,8 @@ async function createStickerPack(ctx, query) {
         };
       }
     );
+
+    const stickerBuffers = stickerCandidates.slice(0, MAX_STICKERS);
 
     if (stickerBuffers.length < 3) {
       throw new Error(
@@ -343,7 +345,7 @@ export function registerStickerPackCommands(commands) {
     await reply(
       ctx,
       '🔎 جاري البحث في Pinterest وتجهيز حزمة الملصقات...\n' +
-      '🌸 سيتم تجهيز حتى 30 ملصقاً بجودة محسّنة.'
+      '🌸 سيتم تجهيز حتى 40 ملصقاً بجودة محسّنة.'
     );
 
     try {
@@ -370,13 +372,13 @@ export function registerStickerPackCommands(commands) {
   };
 
   commands.set('حزمة', {
-    description: 'إنشاء حزمة من 30 ملصقاً من Pinterest',
+    description: 'إنشاء حزمة من 40 ملصقاً من Pinterest',
     handler,
     reaction: '🌸'
   });
 
   commands.set('حزمه', {
-    description: 'إنشاء حزمة من 30 ملصقاً من Pinterest',
+    description: 'إنشاء حزمة من 40 ملصقاً من Pinterest',
     handler,
     reaction: '🌸'
   });
