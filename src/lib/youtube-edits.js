@@ -96,6 +96,20 @@ function getUrl(video) {
       : '');
 }
 
+function isYouTubeUrl(value) {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+
+    return (
+      hostname === 'youtube.com' ||
+      hostname.endsWith('.youtube.com') ||
+      hostname === 'youtu.be'
+    );
+  } catch {
+    return false;
+  }
+}
+
 function mapLimit(items, limit, worker) {
   const results = new Array(items.length);
   let next = 0;
@@ -201,7 +215,7 @@ async function findVideos(candidates) {
     async video => {
       const url = getUrl(video);
 
-      if (!url || !url.includes('youtube.com/')) {
+      if (!url || !isYouTubeUrl(url)) {
         return null;
       }
 
@@ -561,7 +575,7 @@ async function handleEditSearch(ctx) {
   const downloaded = [];
 
   try {
-    const searchQuery = `${query} shorts`;
+    const searchQuery = query;
 
     const result = await yts(searchQuery);
 
