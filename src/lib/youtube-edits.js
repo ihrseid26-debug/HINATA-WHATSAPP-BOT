@@ -13,10 +13,8 @@ import {
 const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
 
-const MAX_CARDS = 3;
+const MAX_CARDS = 5;
 const MAX_DURATION = 90;
-const MIN_AGE_DAYS = 1;
-const MAX_AGE_DAYS = 60;
 const MAX_VIDEO_SIZE = 12 * 1024 * 1024;
 const MAX_SOURCE_SIZE = 80 * 1024 * 1024;
 
@@ -172,21 +170,6 @@ function getPublishedDate(info) {
   return null;
 }
 
-function isRecent(info) {
-  const published = getPublishedDate(info);
-
-  if (!published || Number.isNaN(published.getTime())) {
-    return false;
-  }
-
-  const age = Date.now() - published.getTime();
-
-  return (
-    age >= MIN_AGE_DAYS * 86400000 &&
-    age <= MAX_AGE_DAYS * 86400000
-  );
-}
-
 function getVideoAge(info) {
   const published = getPublishedDate(info);
 
@@ -228,8 +211,7 @@ async function findVideos(candidates) {
       if (
         !Number.isFinite(duration) ||
         duration <= 0 ||
-        duration > MAX_DURATION ||
-        !isRecent(info)
+        duration > MAX_DURATION
       ) {
         return null;
       }
@@ -240,7 +222,7 @@ async function findVideos(candidates) {
         video,
         info,
         url,
-        publishedAt: published.getTime(),
+        publishedAt: published ? published.getTime() : 0,
         vertical: isVertical(info)
       };
     }
@@ -327,13 +309,13 @@ async function downloadVideo(item, index) {
       'scale=w=min(1280\\,iw):h=min(1280\\,ih):force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30,setsar=1',
       '-c:v', 'libx264',
       '-preset', 'medium',
-      '-crf', '24',
-      '-maxrate', '850k',
-      '-bufsize', '1700k',
+      '-crf', '22',
+      '-maxrate', '1200k',
+      '-bufsize', '2400k',
       '-profile:v', 'high',
       '-pix_fmt', 'yuv420p',
       '-c:a', 'aac',
-      '-b:a', '80k',
+      '-b:a', '96k',
       '-ac', '2',
       '-ar', '44100',
       '-movflags', '+faststart',
@@ -481,7 +463,7 @@ async function sendVideoCarousel(ctx, items, query) {
     body: {
       text:
         `🎬 نتائج Edits عن: ${query}\n\n` +
-        `📅 فيديوهات منشورة منذ يوم إلى ${MAX_AGE_DAYS} يوماً.\n` +
+        `📅 نتائج متنوعة بدون تقييد بتاريخ النشر.\n` +
         'اسحب البطاقات لمشاهدة المقاطع.'
     },
 
@@ -557,7 +539,7 @@ async function handleEditSearch(ctx) {
   if (!query) {
     return ctx.reply(
       '🌸 *HINATA • EDITS*\n\n' +
-      'أرسل اسم الشخصية أو الموضوع للبحث عن Edits حديثة.\n\n' +
+      'أرسل اسم الشخصية أو الموضوع للبحث عن Edits.\n\n' +
       'أمثلة:\n' +
       '.ايديت Funk\n' +
       '.ايديت Naruto\n' +
@@ -609,7 +591,7 @@ async function handleEditSearch(ctx) {
 
     if (!videos.length) {
       return ctx.reply(
-        `❌ لم أعثر على مقاطع منشورة منذ يوم إلى ${MAX_AGE_DAYS} يوماً.\n` +
+        `❌ لم أعثر على مقاطع Edits مناسبة.\n` +
         'جرّب البحث بكلمة أخرى.'
       );
     }
