@@ -15,7 +15,8 @@ const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
 
 const MAX_CARDS = 3;
 const MAX_DURATION = 90;
-const MAX_AGE_DAYS = 11;
+const MIN_AGE_DAYS = 1;
+const MAX_AGE_DAYS = 60;
 const MAX_VIDEO_SIZE = 12 * 1024 * 1024;
 const MAX_SOURCE_SIZE = 80 * 1024 * 1024;
 
@@ -174,7 +175,6 @@ function getPublishedDate(info) {
 function isRecent(info) {
   const published = getPublishedDate(info);
 
-  // لا نقبل فيديو لا نعرف تاريخ نشره.
   if (!published || Number.isNaN(published.getTime())) {
     return false;
   }
@@ -182,8 +182,8 @@ function isRecent(info) {
   const age = Date.now() - published.getTime();
 
   return (
-    age >= 0 &&
-    age <= MAX_AGE_DAYS * 24 * 60 * 60 * 1000
+    age >= MIN_AGE_DAYS * 86400000 &&
+    age <= MAX_AGE_DAYS * 86400000
   );
 }
 
@@ -213,7 +213,7 @@ function isVertical(info) {
 
 async function findVideos(candidates) {
   const checked = await mapLimit(
-    candidates.slice(0, 15),
+    candidates.slice(0, 30),
     3,
     async video => {
       const url = getUrl(video);
@@ -223,27 +223,24 @@ async function findVideos(candidates) {
       }
 
       const info = await getInfo(url);
-
-      const duration = Number(
-        info.duration ?? video.seconds
-      );
+      const duration = Number(info.duration ?? video.seconds);
 
       if (
         !Number.isFinite(duration) ||
         duration <= 0 ||
-        duration > MAX_DURATION
+        duration > MAX_DURATION ||
+        !isRecent(info)
       ) {
         return null;
       }
 
-      if (!isRecent(info)) {
-        return null;
-      }
+      const published = getPublishedDate(info);
 
       return {
         video,
         info,
         url,
+        publishedAt: published.getTime(),
         vertical: isVertical(info)
       };
     }
@@ -251,22 +248,12 @@ async function findVideos(candidates) {
 
   return checked
     .filter(Boolean)
-    .sort((a, b) => {
-      if (a.vertical !== b.vertical) {
-        return Number(b.vertical) - Number(a.vertical);
-      }
-
-      return (
-        Number(b.info.view_count || 0) -
-        Number(a.info.view_count || 0)
-      );
-    })
-    .slice(0, MAX_CARDS);
+    .sort((a, b) => b.publishedAt - a.publishedAt);
 }
 
 async function downloadVideo(item, index) {
   const dir = await fs.mkdtemp(
-    path.join(os.tmpdir(), 'hinata-funk-edit-')
+    path.join(os.tmpdir(), 'hinata-edits-')
   );
 
   try {
@@ -383,7 +370,7 @@ async function downloadVideo(item, index) {
 }
 
 function cleanTitle(value) {
-  return String(value || 'HINATA FUNK EDIT')
+  return String(value || 'HINATA EDIT')
     .replace(/\s+/g, ' ')
     .slice(0, 85);
 }
@@ -419,7 +406,7 @@ async function prepareVideoCard(sock, item, index) {
         `📺 القناة: ${item.info.uploader || item.info.channel || 'YouTube'}\n` +
         `⏱️ المدة: ${item.info.duration || 'غير معروفة'} ثانية\n` +
         `📅 النشر: ${getVideoAge(item.info)}\n` +
-        `🌸 HINATA • FUNK EDITS`
+        `🌸 HINATA • EDITS`
     },
 
     footer: {
@@ -450,7 +437,7 @@ async function sendSingleVideo(ctx, item) {
       video: buffer,
       mimetype: 'video/mp4',
       caption:
-        `🌸 HINATA • FUNK EDITS\n\n` +
+        `🌸 HINATA • EDITS\n\n` +
         `🎬 ${cleanTitle(item.info.title)}\n` +
         `📅 ${getVideoAge(item.info)}\n` +
         `🔗 ${item.url}`
@@ -487,14 +474,14 @@ async function sendVideoCarousel(ctx, items, query) {
 
   const interactive = proto.Message.InteractiveMessage.fromObject({
     header: {
-      title: '🌸 HINATA • FUNK EDITS',
+      title: '🌸 HINATA • EDITS',
       hasMediaAttachment: false
     },
 
     body: {
       text:
-        `🎬 نتائج Funk Edit عن: ${query}\n\n` +
-        `📅 فيديوهات منشورة خلال آخر ${MAX_AGE_DAYS} يوماً.\n` +
+        `🎬 نتائج Edits عن: ${query}\n\n` +
+        `📅 فيديوهات منشورة منذ يوم إلى ${MAX_AGE_DAYS} يوماً.\n` +
         'اسحب البطاقات لمشاهدة المقاطع.'
     },
 
@@ -560,12 +547,17 @@ async function sendVideoCarousel(ctx, items, query) {
 }
 
 async function handleEditSearch(ctx) {
-  const query = String(ctx.text || '').trim();
+  let query = String(ctx.text || '').trim();
+
+  query = query
+    .replace(/funk\s*edit/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   if (!query) {
     return ctx.reply(
-      '🌸 *HINATA • FUNK EDITS*\n\n' +
-      'أرسل اسم الشخصية أو الموضوع للبحث عن Funk Edits حديثة.\n\n' +
+      '🌸 *HINATA • EDITS*\n\n' +
+      'أرسل اسم الشخصية أو الموضوع للبحث عن Edits حديثة.\n\n' +
       'أمثلة:\n' +
       '.ايديت Funk\n' +
       '.ايديت Naruto\n' +
@@ -587,8 +579,7 @@ async function handleEditSearch(ctx) {
   const downloaded = [];
 
   try {
-    const searchQuery =
-      `${query} funk edit phonk shorts`;
+    const searchQuery = `${query} shorts`;
 
     const result = await yts(searchQuery);
 
@@ -605,11 +596,11 @@ async function handleEditSearch(ctx) {
           )
         );
       })
-      .slice(0, 15);
+      .slice(0, 30);
 
     if (!candidates.length) {
       return ctx.reply(
-        '❌ لم أعثر على نتائج Funk Edit مناسبة.\n' +
+        '❌ لم أعثر على نتائج Edits مناسبة.\n' +
         'جرّب كلمة بحث أخرى.'
       );
     }
@@ -618,30 +609,58 @@ async function handleEditSearch(ctx) {
 
     if (!videos.length) {
       return ctx.reply(
-        `❌ لم أعثر على مقاطع Funk Edit منشورة خلال آخر ${MAX_AGE_DAYS} يوماً.\n` +
+        `❌ لم أعثر على مقاطع منشورة منذ يوم إلى ${MAX_AGE_DAYS} يوماً.\n` +
         'جرّب البحث بكلمة أخرى.'
       );
     }
 
-    const results = await mapLimit(
-      videos,
-      2,
-      (item, index) => downloadVideo(item, index)
-    );
+    // محاولة تنزيل كل فيديو بالتتابع وتجاوز الفاشل
+    for (const video of videos) {
+      if (downloaded.length >= MAX_CARDS) break;
 
-    downloaded.push(...results.filter(Boolean));
+      try {
+        console.log(
+          '[HINATA EDITS] Trying:',
+          video.info.title
+        );
+
+        const item = await downloadVideo(
+          video,
+          downloaded.length
+        );
+
+        downloaded.push(item);
+
+        console.log(
+          '[HINATA EDITS] Download successful:',
+          video.info.title
+        );
+
+      } catch (error) {
+        console.error(
+          '[HINATA EDITS] Skipping failed video:',
+          video.url,
+          error.message
+        );
+      }
+    }
 
     if (!downloaded.length) {
       return ctx.reply(
-        '❌ تعذّر تنزيل المقاطع المناسبة حالياً.\n' +
-        'قد تكون بعض الفيديوهات غير متاحة أو كبيرة الحجم.'
+        '❌ تعذّر تنزيل الفيديوهات المتاحة حالياً.'
       );
     }
 
-    await sendVideoCarousel(ctx, downloaded, query);
+    console.log(
+      `[HINATA EDITS] Downloaded ${downloaded.length} videos`
+    );
+
+    
+
+await sendVideoCarousel(ctx, downloaded, query);
 
   } catch (error) {
-    console.error('[HINATA FUNK EDITS]', error);
+    console.error('[HINATA EDITS]', error);
 
     await ctx.reply(
       '❌ تعذّر البحث أو تجهيز فيديوهات الإيديت حالياً.\n' +
@@ -665,7 +684,7 @@ async function handleEditSearch(ctx) {
 export function registerYoutubeEditCommands(commands) {
   for (const name of ['ايديت', 'ايدت']) {
     commands.set(name, {
-      description: 'البحث عن Funk Edits حديثة من YouTube Shorts',
+      description: 'البحث عن Edits حديثة من YouTube Shorts',
       reaction: '🎬',
       handler: handleEditSearch
     });
