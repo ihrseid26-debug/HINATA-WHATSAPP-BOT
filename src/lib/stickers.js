@@ -609,29 +609,37 @@ async function hatSticker(ctx) {
     return;
   }
 
+  const MAX_DURATION = 25;
+  const MAX_STICKER_SIZE = 500 * 1024;
+
   let audio;
 
   try {
-    // استخراج الصوت كاملاً من الفيديو بصيغة OGG/Opus
     audio = await ffmpeg(media.buffer, 'ogg', [
+      '-map', '0:a:0',
       '-vn',
+      '-t', String(MAX_DURATION),
+      '-ac', '1',
+      '-ar', '48000',
       '-c:a', 'libopus',
-      '-b:a', '96k',
+      '-b:a', '64k',
       '-application', 'audio',
       '-f', 'ogg'
     ]);
-  } catch {
+
+    if (!audio?.length) throw new Error('EMPTY_AUDIO');
+  } catch (error) {
     await ctx.reply(
-      '⚠️ لم أستطع استخراج صوت من الفيديو. تأكد أن الفيديو يحتوي على صوت.'
+      '⚠️ تعذّر استخراج الصوت. تأكد أن الفيديو يحتوي على صوت.'
     );
     return;
   }
 
-  // الملصق مربع، والحركة قصيرة؛ الصوت يبقى كاملاً.
   const attempts = [
-    { duration: '5', fps: '8', quality: '50' },
-    { duration: '5', fps: '8', quality: '40' },
-    { duration: '4', fps: '6', quality: '35' }
+    { fps: 12, quality: 50 },
+    { fps: 10, quality: 42 },
+    { fps: 8, quality: 35 },
+    { fps: 6, quality: 30 }
   ];
 
   let webp = null;
@@ -639,53 +647,58 @@ async function hatSticker(ctx) {
   for (const attempt of attempts) {
     try {
       const candidate = await ffmpeg(media.buffer, 'webp', [
-        '-t', attempt.duration,
+        '-map', '0:v:0',
+        '-an',
+        '-t', String(MAX_DURATION),
         '-vf',
-        'fps=' + attempt.fps +
-          ',scale=320:320:force_original_aspect_ratio=decrease' +
-          ',pad=320:320:(ow-iw)/2:(oh-ih)/2:color=0x00000000',
+        `fps=${attempt.fps},` +
+          'scale=320:320:force_original_aspect_ratio=decrease:flags=lanczos,' +
+          'pad=320:320:(ow-iw)/2:(oh-ih)/2:color=0x00000000,format=yuva420p',
         '-c:v', 'libwebp',
         '-lossless', '0',
-        '-q:v', attempt.quality,
+        '-q:v', String(attempt.quality),
         '-loop', '0',
-        '-an'
+        '-vsync', '0'
       ]);
 
-      const validWebp =
+      const validWebP =
         candidate.length >= 12 &&
         candidate.toString('ascii', 0, 4) === 'RIFF' &&
         candidate.toString('ascii', 8, 12) === 'WEBP';
 
-      // حد تقريبي لحجم الملصق المتحرك.
-      if (validWebp && candidate.length <= 500 * 1024) {
+      if (validWebP && candidate.length <= MAX_STICKER_SIZE) {
         webp = candidate;
         break;
       }
     } catch {
-      // جرّب إعداد ضغط أخف في المحاولة التالية.
+      // تجربة إعداد الضغط التالي.
     }
   }
 
   if (!webp) {
     await ctx.reply(
-      '⚠️ لم أتمكن من ضغط حركة الفيديو إلى حجم ملصق مناسب. ' +
-      'جرّب فيديو أقصر أو أقل حركة.'
+      '⚠️ تعذّر إنشاء ملصق متحرك بالحجم المناسب. جرّب فيديو أقل حركة.'
     );
     return;
   }
 
-  await sendSticker(ctx, webp, null, {
-    stickerAudio: audio,
-    metadataOptions: {
-      packId: 'com.hinata.soundstickers',
-      packName: '♔༻ HINATA • SOUND STICKER ༺♔',
-      publisher: '♔༻ 𝑯𝑰𝑵𝑨𝑻𝑨 • 𝑩𝑶𝑻 ༺♔ 🌸✨🎞️🎧',
-      emojis: ['🎵', '🌸', '✨', '🎧']
-    }
-  });
+  try {
+    await sendSticker(ctx, webp, null, {
+      stickerAudio: audio,
+      metadataOptions: {
+        packId: 'com.hinata.soundstickers',
+        packName: '♔༻ HINATA • SOUND STICKER ༺♔',
+        publisher: '♔༻ 𝑯𝑰𝑵𝑨𝑻𝑨 • 𝑩𝑶𝑻 ༺♔ 🌸✨🎞️🎧',
+        emojis: ['🎵', '🌸', '✨', '🎧']
+      }
+    });
+  } catch (error) {
+    console.error('[HINATA HAT STICKER]', error);
+    await ctx.reply(
+      '⚠️ فشل إرسال الملصق الصوتي. راجع سجل البوت لمعرفة السبب.'
+    );
+  }
 }
-
-
 async function extractVideoFrame(ctx) {
   const media = await getMedia(ctx, ['videoMessage']);
   if (!media) {
