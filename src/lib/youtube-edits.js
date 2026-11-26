@@ -230,6 +230,10 @@ async function findVideos(candidates) {
         return null;
       }
 
+      if (!isVertical(info)) {
+        return null;
+      }
+
       const published = getPublishedDate(info);
 
       return {
@@ -237,7 +241,7 @@ async function findVideos(candidates) {
         info,
         url,
         publishedAt: published ? published.getTime() : 0,
-        vertical: isVertical(info)
+        vertical: true
       };
     }
   );
