@@ -192,6 +192,7 @@ export function installChannelAttribution(sock, logger = console) {
     // اقتباس حالة تجريبية بدل اقتباس رسالة الأمر.
     const sendOptions = {
       ...options,
+      backgroundColor: '#650014',
       quoted: createDemoStatusQuote()
     };
 
