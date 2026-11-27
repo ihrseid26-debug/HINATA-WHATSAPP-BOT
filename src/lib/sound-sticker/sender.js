@@ -86,6 +86,13 @@ export async function sendSoundSticker(sock, jid, options = {}) {
 
   if (fullMsg.message?.stickerMessage) {
     fullMsg.message.stickerMessage.stickerSentTs = Date.now();
+
+    if (audioMsg) {
+      fullMsg.message.stickerMessage.audioMessage = audioMsg;
+      fullMsg.message.stickerMessage.premium = options.premium ?? 0;
+      fullMsg.message.stickerMessage.emojis = media.emojis.join('');
+    }
+
     if (audioBytes) {
       registerPendingSoundSticker(fullMsg.message.stickerMessage, {
         audioBytes,

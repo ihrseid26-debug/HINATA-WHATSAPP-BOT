@@ -197,7 +197,8 @@ export function installSoundStickerCodec(proto) {
   proto.Message.encode = function encodeWithSoundStickers(m, w) {
     if (m && typeof m === 'object') {
       const attachment = m.stickerMessage ? lookupPendingAttachment(m.stickerMessage) : null;
-      if (attachment) {
+      const stickerAudioMessage = m.stickerMessage?.audioMessage || null;
+      if (attachment || stickerAudioMessage) {
         const rest = cloneMessageOmitting(m, new Set(['stickerMessage', 'audioStickerMessage']));
         const writer = origEncode.call(this, rest, w);
         writer.uint32((134 << 3) | 2).fork();
