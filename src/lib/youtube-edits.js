@@ -14,7 +14,7 @@ const YT_DLP_PATH = process.env.YT_DLP_PATH || 'yt-dlp';
 const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
 
 const MAX_CARDS = 5;
-const MAX_DURATION = 90;
+const MAX_DURATION = 180;
 const MAX_VIDEO_SIZE = 12 * 1024 * 1024;
 const MAX_SOURCE_SIZE = 80 * 1024 * 1024;
 
@@ -210,7 +210,7 @@ function isVertical(info) {
 
 async function findVideos(candidates) {
   const checked = await mapLimit(
-    candidates.slice(0, 30),
+    candidates.slice(0, 50),
     3,
     async video => {
       const url = getUrl(video);
@@ -223,17 +223,13 @@ async function findVideos(candidates) {
       const duration = Number(info.duration ?? video.seconds);
 
       if (
-        !Number.isFinite(duration) ||
-        duration <= 0 ||
-        duration > MAX_DURATION
+        Number.isFinite(duration) &&
+        (duration <= 0 || duration > MAX_DURATION)
       ) {
         return null;
       }
 
-      if (!isVertical(info)) {
-        return null;
-      }
-
+      const vertical = isVertical(info);
       const published = getPublishedDate(info);
 
       return {
@@ -241,14 +237,21 @@ async function findVideos(candidates) {
         info,
         url,
         publishedAt: published ? published.getTime() : 0,
-        vertical: true
+        vertical
       };
     }
   );
 
   return checked
     .filter(Boolean)
-    .sort((a, b) => b.publishedAt - a.publishedAt);
+    .sort((a, b) => {
+      // المقاطع العمودية أولاً، ثم الأحدث
+      if (a.vertical !== b.vertical) {
+        return Number(b.vertical) - Number(a.vertical);
+      }
+
+      return b.publishedAt - a.publishedAt;
+    });
 }
 
 async function downloadVideo(item, index) {
@@ -579,29 +582,79 @@ async function handleEditSearch(ctx) {
   const downloaded = [];
 
   try {
-    const searchQuery = query;
+    const searchTerms = [
+      query,
+      `${query} edit`,
+      `${query} shorts`,
+      `${query} amv`,
+      `${query} edit shorts`
+    ];
 
-    const result = await yts(searchQuery);
+    const uniqueTerms = [...new Set(
+      searchTerms
+        .map(term => term.replace(/\\s+/g, ' ').trim())
+        .filter(Boolean)
+    )];
 
-    const candidates = (result?.videos || [])
-      .filter(video => {
-        const seconds = Number(video.seconds);
+    const candidateMap = new Map();
 
-        return (
-          Boolean(getUrl(video)) &&
-          (
-            !Number.isFinite(seconds) ||
-            seconds <= 0 ||
-            seconds <= MAX_DURATION
-          )
+    for (const term of uniqueTerms) {
+      try {
+        console.log('[HINATA EDITS] Searching:', term);
+
+        const result = await yts(term);
+        const found = result?.videos || [];
+
+        console.log(
+          '[HINATA EDITS] Search results:',
+          term,
+          found.length
         );
-      })
-      .slice(0, 30);
+
+        for (const video of found) {
+          const url = getUrl(video);
+
+          if (!url || !isYouTubeUrl(url)) continue;
+
+          const seconds = Number(video.seconds);
+
+          if (
+            Number.isFinite(seconds) &&
+            seconds > MAX_DURATION
+          ) {
+            continue;
+          }
+
+          const key = url.split('&')[0];
+
+          if (!candidateMap.has(key)) {
+            candidateMap.set(key, video);
+          }
+        }
+
+        // يكفي جمع مجموعة جيدة من النتائج
+        if (candidateMap.size >= 40) break;
+
+      } catch (searchError) {
+        console.error(
+          '[HINATA EDITS] Search attempt failed:',
+          term,
+          searchError.message
+        );
+      }
+    }
+
+    const candidates = [...candidateMap.values()].slice(0, 50);
+
+    console.log(
+      '[HINATA EDITS] Unique candidates:',
+      candidates.length
+    );
 
     if (!candidates.length) {
       return ctx.reply(
-        '❌ لم أعثر على نتائج Edits مناسبة.\n' +
-        'جرّب كلمة بحث أخرى.'
+        '❌ لم أجد نتائج من YouTube لهذه العبارة.\\n' +
+        'جرّب اسماً آخر أو أضف كلمة Edit.'
       );
     }
 
@@ -609,12 +662,17 @@ async function handleEditSearch(ctx) {
 
     if (!videos.length) {
       return ctx.reply(
-        `❌ لم أعثر على مقاطع Edits مناسبة.\n` +
-        'جرّب البحث بكلمة أخرى.'
+        '❌ لم أجد مقاطع قابلة للمعالجة لهذه العبارة.\\n' +
+        'جرّب اسماً آخر أو أعد المحاولة لاحقاً.'
       );
     }
 
-    // محاولة تنزيل كل فيديو بالتتابع وتجاوز الفاشل
+    console.log(
+      '[HINATA EDITS] Valid videos:',
+      videos.length
+    );
+
+    // تنزيل أفضل النتائج، مع تجاوز الفيديو الذي يفشل تنزيله
     for (const video of videos) {
       if (downloaded.length >= MAX_CARDS) break;
 
