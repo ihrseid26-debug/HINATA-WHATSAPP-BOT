@@ -1,5 +1,8 @@
 import { addHinataStickerMetadata } from './sticker-metadata.js';
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
+import { createHash } from 'node:crypto';
+import { buildWhatsAppStickerMeta, injectWhatsAppExif } from './sound-sticker/webp.js';
+import { sendSoundSticker } from './sound-sticker/sender.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
@@ -683,14 +686,33 @@ async function hatSticker(ctx) {
   }
 
   try {
-    await sendSticker(ctx, webp, null, {
-      stickerAudio: audio,
-      metadataOptions: {
-        packId: 'com.hinata.soundstickers',
-        packName: '♔༻ HINATA • SOUND STICKER ༺♔',
-        publisher: '♔༻ 𝑯𝑰𝑵𝑨𝑻𝑨 • 𝑩𝑶𝑻 ༺♔ 🌸✨🎞️🎧',
-        emojis: ['🎵', '🌸', '✨', '🎧']
-      }
+    const packName = '♔༻ HINATA • SOUND STICKER ༺♔';
+    const publisher = '♔༻ 𝑯𝑰𝑵𝑨𝑻𝑨 • 𝑩𝑶𝑻 ༺♔ 🌸✨🎞️🎧';
+    const emojis = ['🎵', '🌸', '✨', '🎧'];
+
+    const soundSha256 = createHash('sha256')
+      .update(audio)
+      .digest('base64');
+
+    const stickerMeta = buildWhatsAppStickerMeta({
+      packId: 'com.hinata.soundstickers',
+      packName,
+      publisher,
+      emojis,
+      soundSha256
+    });
+
+    const soundWebp = injectWhatsAppExif(webp, stickerMeta);
+
+    await sendSoundSticker(ctx.sock, ctx.jid, {
+      webpBuffer: soundWebp,
+      audioBuffer: audio,
+      audioMimetype: 'audio/ogg; codecs=opus',
+      isAnimated: true,
+      width: 320,
+      height: 320,
+      emojis,
+      quoted: ctx.message
     });
   } catch (error) {
     console.error('[HINATA HAT STICKER]', error);

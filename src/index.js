@@ -1,9 +1,10 @@
+import { installSoundStickerCodec } from './lib/sound-sticker/wire.js';
 import { rememberNewsletterMessages } from './lib/newsletter-post-cache.js';
 import 'dotenv/config';
 import fs from 'node:fs/promises';
 import readline from 'node:readline/promises';
 import process from 'node:process';
-import makeWASocket, { DisconnectReason, useMultiFileAuthState } from '@whiskeysockets/baileys';
+import makeWASocket, { DisconnectReason, useMultiFileAuthState, proto } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { config } from './config.js';
 import { createGroupSettingsStore } from './lib/group-settings.js';
@@ -16,6 +17,7 @@ import { handleMarasemParticipantUpdate } from './lib/marasem.js';
 import { handleDeviceJoinAudit } from './lib/group-device-audit.js';
 import { startAutonomousManager } from './lib/autonomous/manager.js';
 
+installSoundStickerCodec(proto);
 const logger = pino({ level: config.logLevel });
 const settingsStore = createGroupSettingsStore(config.databaseDir);
 const memberManager = createMemberManager(config.databaseDir, logger);
